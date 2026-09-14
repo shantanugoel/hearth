@@ -10,7 +10,17 @@
       "added_at": "2026-09-14T00:00:00+0530"
     }
   ],
-  "do": [],
+  "do": [
+    {
+      "id": "d1",
+      "text": "call school",
+      "owner": "Maya",
+      "when": "",
+      "status": "open",
+      "source": "fridge",
+      "added_at": "2026-09-14T00:00:00+0530"
+    }
+  ],
   "pack": [
     {
       "id": "p1",

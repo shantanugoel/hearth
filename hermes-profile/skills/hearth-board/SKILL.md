@@ -35,13 +35,16 @@ Hub default: `http://192.168.2.89:8790` (override with `HEARTH_HUB_URL`).
   "ops": [
     {"op": "add", "list": "buy", "text": "oat milk"},
     {"op": "add", "list": "pack", "text": "swim kit", "owner": "Maya", "when": "Thursday"},
-    {"op": "complete", "list": "buy", "text": "eggs"}
+    {"op": "add", "list": "do", "text": "call school", "owner": "Maya"},
+    {"op": "complete", "list": "buy", "text": "eggs"},
+    {"op": "set_menu", "weekday": "thu", "meal": "dal rice"}
   ]
 }
 ```
 
 `list` is `buy`, `do`, or `pack`. For a named dinner: `{"op":"set_menu","weekday":"thu","meal":"dal rice"}`.
 `weekday` is `mon`..`sun`. Completions use `complete` with `text` or `id`.
+Always set `owner` when a person is named in the utterance.
 
 4. Reply with **one short sentence** for the e-paper. Examples:
    - `Added oat milk to Buy.`
@@ -51,7 +54,9 @@ Hub default: `http://192.168.2.89:8790` (override with `HEARTH_HUB_URL`).
 ## Rules
 
 - People only when named. Unnamed items are household-owned (omit `owner`).
+- "Maya needs X" / "pack Maya's Y" → set `owner` to Maya.
 - "We're out of X" / "get X" → `buy`. "Pack Y" → `pack`. Chores → `do`.
+- "Dinner is dal" / "tonight is pasta" → `set_menu` for that weekday.
 - "We got X" / "X is done" → `complete`, never a new open item.
 - Do not add weather. The hub fetches weather.
 - If the hub is unreachable, say `heard, not filed` and stop.

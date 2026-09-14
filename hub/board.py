@@ -10,6 +10,8 @@ from typing import Any
 
 LISTS = ("buy", "do", "pack", "menu")
 STATUSES = ("open", "done")
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def _now() -> str:
@@ -111,6 +113,17 @@ class Board:
             raise ValueError("empty item")
         for existing in self.open_items(list_name):
             if existing["text"].casefold() == text.casefold():
+                owner = owner.strip()
+                when = when.strip()
+                changed = False
+                if owner and not (existing.get("owner") or ""):
+                    existing["owner"] = owner
+                    changed = True
+                if when and not (existing.get("when") or ""):
+                    existing["when"] = when
+                    changed = True
+                if changed:
+                    self.save()
                 return existing
         item = _item(
             text,
@@ -142,8 +155,7 @@ class Board:
 
     def set_menu(self, weekday: str, meal: str, notes: str = "") -> dict:
         day = weekday.strip().casefold()[:3]
-        names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-        if day not in names:
+        if day not in WEEKDAYS:
             raise ValueError("weekday must be mon..sun")
         entry = None
         for row in self.data["menu"]:
@@ -214,11 +226,7 @@ class Board:
             lines.append(meal)
 
         def label(item: dict) -> str:
-            text = item.get("text") or ""
-            owner = item.get("owner") or ""
-            when = item.get("when") or ""
-            suffix = "  ".join(p for p in (owner, when) if p)
-            return f"{text}  {suffix}".strip() if suffix else text
+            return item_label(item)
 
         for item in self.open_items("pack") + self.open_items("do"):
             if len(lines) >= limit:
@@ -273,6 +281,14 @@ def weather_line(
     return f"{int(round(temp_c))}C  {word}"
 
 
+def item_label(item: dict) -> str:
+    text = item.get("text") or ""
+    owner = item.get("owner") or ""
+    when = item.get("when") or ""
+    suffix = "  ".join(p for p in (owner, when) if p)
+    return f"{text}  {suffix}".strip() if suffix else text
+
+
 def poster_from_board(board: Board) -> dict[str, Any]:
     """Flat JSON the firmware can pick apart with HearthJsonString."""
     date = time.strftime("%a ") + str(int(time.strftime("%d"))) + time.strftime(" %b")
@@ -281,10 +297,14 @@ def poster_from_board(board: Board) -> dict[str, Any]:
     counts = board.counts()
     ack = (board.data.get("meta") or {}).get("last_ack") or ""
     today = board.today_lines()
-    buy = []
-    for item in board.open_items("buy")[:8]:
-        owner = item.get("owner") or ""
-        buy.append(f"{item['text']}" + (f"  {owner}" if owner else ""))
+    buy = [item_label(item) for item in board.open_items("buy")[:8]]
+    do = [item_label(item) for item in board.open_items("do")[:6]]
+    pack = [item_label(item) for item in board.open_items("pack")[:6]]
+    meals = {
+        (row.get("weekday") or "").casefold()[:3]: (row.get("meal") or "").strip()
+        for row in board.data.get("menu") or []
+    }
+    today_key = time.strftime("%a").casefold()[:3]
     payload: dict[str, Any] = {
         "date": date,
         "weather": weather,
@@ -298,4 +318,13 @@ def poster_from_board(board: Board) -> dict[str, Any]:
         payload[f"t{i}"] = today[i] if i < len(today) else ""
     for i in range(8):
         payload[f"b{i}"] = buy[i] if i < len(buy) else ""
+    for i in range(6):
+        payload[f"d{i}"] = do[i] if i < len(do) else ""
+    for i in range(6):
+        payload[f"p{i}"] = pack[i] if i < len(pack) else ""
+    for i, (key, label) in enumerate(zip(WEEKDAYS, WEEKDAY_LABELS)):
+        mark = "*" if key == today_key else " "
+        dish = meals.get(key, "")
+        payload[f"m{i}"] = f"{mark}{label}  {dish}".rstrip()
     return payload
+

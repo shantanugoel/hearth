@@ -1,4 +1,4 @@
-/* Hearth board firmware: STA Wi-Fi, hold-OK to speak, Today / Buy posters.
+/* Hearth board firmware: STA Wi-Fi, hold-OK to speak, Today/Buy/Menu/Do/Pack.
  *
  * Layout still lives on-device from hub JSON. Step 5 replaces this with
  * hub-rendered 16-gray bitmaps.
@@ -27,7 +27,7 @@
 namespace {
 
 constexpr const char* kTag = "hearth";
-constexpr const char* kFirmwareVersion = "v0.3.0-board";
+constexpr const char* kFirmwareVersion = "v0.4.0-lists";
 constexpr TickType_t kPollTick = pdMS_TO_TICKS(50);
 constexpr uint32_t kMaxClipMs = 12000;
 constexpr uint32_t kHoldGateMs = 220;
@@ -142,7 +142,7 @@ void SpeakTurn() {
     }
 
     ShowVoice(HearthVoice::kUploading, "sending to hub", false);
-    char body[3072];
+    char body[4096];
     uint32_t stt_ms = 0;
     const esp_err_t posted = HearthPostUtterance(
         g_config.hub, clip.wav, clip.bytes, body, sizeof(body), &stt_ms);
@@ -171,7 +171,7 @@ void SpeakTurn() {
 }
 
 void HandleOkClick() {
-    if (g_state.screen == HearthScreen::kRadio) {
+    if (g_state.screen == HearthScreen::kPulse) {
         (void)HearthWifiScan(&g_state);
     }
     RefreshPower();
@@ -213,7 +213,7 @@ extern "C" void app_main(void) {
         (void)HearthWifiScan(&g_state);
         RefreshRadio();
         if (HearthWifiConnected() && g_config.hub[0] != '\0') {
-            char poster[3072];
+            char poster[4096];
             if (HearthGetPoster(g_config.hub, poster, sizeof(poster)) ==
                 ESP_OK) {
                 HearthApplyPoster(&g_state, poster);

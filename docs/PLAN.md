@@ -173,7 +173,8 @@ None that block starting firmware bring-up. Weather source (hub fetch vs Hermes 
 1. ESP-IDF bring-up from the official NOTE4 demo: display, buttons, power-hold, Wi-Fi, sleep.
 2. Voice clip → hub → transcript shown on screen.
 3. `hearth` profile + board + Today / Buy render. First family-useful day.
-4. Menu, Do, Pack, owners-from-speech, Telegram on the same session.
+4. Menu, Do, Pack, owners-from-speech. Telegram on the same session is deferred
+   (voice is the mouth for now).
 5. 16-gray posters, idle snap-back, spoken acks, morning weather + agenda refresh.
 
 ## References

@@ -12,19 +12,19 @@ constexpr int kBodyWidth = HearthCanvas::kWidth - 2 * kMargin;
 
 void Footer(HearthCanvas& canvas, const HearthState& state) {
     canvas.HLine(kMargin, 268, HearthCanvas::kWidth - 2 * kMargin);
-    const char* all = "Today  Buy  Radio  Power";
+    const char* all = "Today Buy Menu Do Pack Pulse";
     canvas.TextCentered(274, all, 1);
     const int total = canvas.TextWidth(all, 1);
     const int start = (HearthCanvas::kWidth - total) / 2;
     int x = start;
-    const char* words[] = {"Today", "Buy", "Radio", "Power"};
+    const char* words[] = {"Today", "Buy", "Menu", "Do", "Pack", "Pulse"};
     const int index = static_cast<int>(state.screen);
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 6; ++i) {
         const int w = canvas.TextWidth(words[i], 1);
         if (i == index) {
             canvas.FillRect(x, 292, w, 2, true);
         }
-        x += w + canvas.TextWidth("  ", 1);
+        x += w + canvas.TextWidth(" ", 1);
     }
 }
 
@@ -101,6 +101,44 @@ void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text
     }
 }
 
+void DrawAckOrCounts(HearthCanvas& canvas, const HearthState& state) {
+    if (state.ack[0] != '\0') {
+        DrawWrapped(canvas, kMargin, 230, kBodyWidth, state.ack, 1, 16, 1);
+        return;
+    }
+    char counts[48];
+    std::snprintf(counts, sizeof(counts), "Buy %s  -  Do %s  -  Pack %s",
+                  state.n_buy[0] ? state.n_buy : "0",
+                  state.n_do[0] ? state.n_do : "0",
+                  state.n_pack[0] ? state.n_pack : "0");
+    canvas.Text(kMargin, 230, counts, 1);
+}
+
+void DrawList(HearthCanvas& canvas, const char* title,
+              const char rows[][48], int n, const char* empty_a,
+              const char* empty_b, const HearthState& state) {
+    canvas.Text(kMargin, 16, title, 2);
+    canvas.HLine(kMargin, 52, canvas.TextWidth(title, 2));
+    bool any = false;
+    int y = 68;
+    for (int i = 0; i < n; ++i) {
+        if (rows[i][0] == '\0') {
+            continue;
+        }
+        any = true;
+        canvas.Text(kMargin, y, rows[i], 1);
+        y += 22;
+        if (y > 220) {
+            break;
+        }
+    }
+    if (!any) {
+        canvas.Text(kMargin, 80, empty_a, 1);
+        canvas.Text(kMargin, 104, empty_b, 1);
+    }
+    DrawAckOrCounts(canvas, state);
+}
+
 void DrawToday(HearthCanvas& canvas, const HearthState& state) {
     const char* date = state.date[0] ? state.date : "Today";
     canvas.Text(kMargin, 16, date, 2);
@@ -120,7 +158,6 @@ void DrawToday(HearthCanvas& canvas, const HearthState& state) {
         if (state.today[i][0] == '\0') {
             continue;
         }
-        // Meal is already the hero; skip a duplicate first today line.
         if (state.meal[0] != '\0' &&
             std::strcmp(state.today[i], state.meal) == 0) {
             continue;
@@ -136,77 +173,46 @@ void DrawToday(HearthCanvas& canvas, const HearthState& state) {
         canvas.Text(kMargin, 96, "kitchen is clear.", 1);
         canvas.Text(kMargin, 118, "hold OK to speak.", 1);
     }
-
-    if (state.ack[0] != '\0') {
-        DrawWrapped(canvas, kMargin, 230, kBodyWidth, state.ack, 1, 16, 1);
-    } else {
-        char counts[48];
-        std::snprintf(counts, sizeof(counts), "Buy %s  ·  Do %s  ·  Pack %s",
-                      state.n_buy[0] ? state.n_buy : "0",
-                      state.n_do[0] ? state.n_do : "0",
-                      state.n_pack[0] ? state.n_pack : "0");
-        canvas.Text(kMargin, 230, counts, 1);
-    }
+    DrawAckOrCounts(canvas, state);
 }
 
-void DrawBuy(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Text(kMargin, 16, "Buy", 2);
+void DrawMenu(HearthCanvas& canvas, const HearthState& state) {
+    canvas.Text(kMargin, 16, "Menu", 2);
     canvas.HLine(kMargin, 52, 80);
     bool any = false;
-    int y = 68;
-    for (int i = 0; i < 8; ++i) {
-        if (state.buy[i][0] == '\0') {
+    for (int i = 0; i < 7; ++i) {
+        if (state.menu[i][0] == '\0') {
             continue;
         }
         any = true;
-        canvas.Text(kMargin, y, state.buy[i], 1);
-        y += 22;
+        const char* line = state.menu[i];
+        const bool today = line[0] == '*';
+        if (today) {
+            canvas.FillRect(kMargin - 4, 64 + i * 22, 4, 16, false);
+        }
+        canvas.Text(kMargin, 64 + i * 22, today ? line + 1 : line, 1);
     }
     if (!any) {
-        canvas.Text(kMargin, 80, "nothing to buy.", 1);
+        canvas.Text(kMargin, 80, "no dinners yet.", 1);
         canvas.Text(kMargin, 104, "hold OK to speak.", 1);
-    }
-    if (state.ack[0] != '\0') {
-        DrawWrapped(canvas, kMargin, 246, kBodyWidth, state.ack, 1, 16, 1);
     }
 }
 
-void DrawRadio(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Text(kMargin, 18, "Radio", 2);
-    canvas.HLine(kMargin, 56, 110);
+void DrawPulse(HearthCanvas& canvas, const HearthState& state) {
+    canvas.Text(kMargin, 16, "Pulse", 2);
+    canvas.HLine(kMargin, 52, 90);
     canvas.Text(kMargin, 68, state.wifi_status, 1);
     if (state.ip[0] != '\0') {
         canvas.Text(kMargin, 88, state.ip, 1);
     }
-    if (state.ap_count <= 0) {
-        canvas.Text(kMargin, 120, "no access points yet", 1);
-        canvas.Text(kMargin, 144, "short OK rescan", 1);
-        return;
-    }
-    const int top = state.ip[0] ? 112 : 96;
-    for (int i = 0; i < state.ap_count; ++i) {
-        char line[72];
-        std::snprintf(line, sizeof(line), "%-22s  %4d dBm", state.aps[i].ssid,
-                      state.aps[i].rssi);
-        canvas.Text(kMargin, top + i * 20, line, 1);
-    }
-    canvas.Text(kMargin, 248, "short OK rescan", 1);
-}
-
-void DrawPower(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Text(kMargin, 18, "Power", 2);
-    canvas.HLine(kMargin, 56, 110);
-
     char line[64];
     if (state.battery_valid) {
-        std::snprintf(line, sizeof(line), "%u mV", state.battery_mv);
-        canvas.Text(kMargin, 80, line, 3);
-        std::snprintf(line, sizeof(line), "%u percent", state.battery_percent);
-        canvas.Text(kMargin, 140, line, 1);
+        std::snprintf(line, sizeof(line), "battery  %u%%   %u mV",
+                      state.battery_percent, state.battery_mv);
     } else {
-        canvas.Text(kMargin, 80, "no reading", 2);
+        std::snprintf(line, sizeof(line), "battery  unknown");
     }
-
+    canvas.Text(kMargin, 112, line, 1);
     const char* charge = "idle";
     if (state.charge_complete) {
         charge = "full";
@@ -214,9 +220,17 @@ void DrawPower(HearthCanvas& canvas, const HearthState& state) {
         charge = "charging";
     }
     std::snprintf(line, sizeof(line), "charger  %s", charge);
-    canvas.Text(kMargin, 172, line, 1);
-    canvas.Text(kMargin, 204, "GPIO17 holds the battery rail.", 1);
-    canvas.Text(kMargin, 228, "Hold DOWN 3s to clear the panel and sleep.", 1);
+    canvas.Text(kMargin, 132, line, 1);
+    if (state.hub[0] != '\0') {
+        canvas.Text(kMargin, 156, state.hub, 1);
+    }
+    if (state.transcript[0] != '\0') {
+        DrawWrapped(canvas, kMargin, 180, kBodyWidth, state.transcript, 1, 18,
+                    2);
+    } else {
+        canvas.Text(kMargin, 180, "nothing heard yet", 1);
+    }
+    canvas.Text(kMargin, 230, "Hold DOWN 3s to sleep.", 1);
 }
 
 void DrawVoiceOverlay(HearthCanvas& canvas, const HearthState& state) {
@@ -245,13 +259,22 @@ void HearthDraw(HearthCanvas& canvas, const HearthState& state) {
             DrawToday(canvas, state);
             break;
         case HearthScreen::kBuy:
-            DrawBuy(canvas, state);
+            DrawList(canvas, "Buy", state.buy, 8, "nothing to buy.",
+                     "hold OK to speak.", state);
             break;
-        case HearthScreen::kRadio:
-            DrawRadio(canvas, state);
+        case HearthScreen::kMenu:
+            DrawMenu(canvas, state);
             break;
-        case HearthScreen::kPower:
-            DrawPower(canvas, state);
+        case HearthScreen::kDo:
+            DrawList(canvas, "Do", state.chores, 6, "nothing to do.",
+                     "hold OK to speak.", state);
+            break;
+        case HearthScreen::kPack:
+            DrawList(canvas, "Pack", state.pack, 6, "nothing to pack.",
+                     "hold OK to speak.", state);
+            break;
+        case HearthScreen::kPulse:
+            DrawPulse(canvas, state);
             break;
         default:
             break;

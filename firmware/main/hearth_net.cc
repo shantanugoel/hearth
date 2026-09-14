@@ -14,7 +14,7 @@
 namespace {
 
 constexpr const char* kTag = "hearth_net";
-constexpr int kBodyCap = 3072;
+constexpr int kBodyCap = 4096;
 
 struct Sink {
     char buffer[kBodyCap] = {};

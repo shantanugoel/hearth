@@ -136,18 +136,28 @@ HearthState MakeToday() {
     std::snprintf(s.hub, sizeof(s.hub), "http://192.168.2.89:8790");
     std::snprintf(s.transcript, sizeof(s.transcript),
                   "we are out of oat milk");
-    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.3.0-board");
+    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.4.0-lists");
     std::snprintf(s.date, sizeof(s.date), "Mon 14 Sep");
     std::snprintf(s.weather, sizeof(s.weather), "29C  fair  24-32");
     std::snprintf(s.meal, sizeof(s.meal), "dal rice");
     std::snprintf(s.ack, sizeof(s.ack), "Added oat milk to Buy.");
     std::snprintf(s.n_buy, sizeof(s.n_buy), "1");
-    std::snprintf(s.n_do, sizeof(s.n_do), "0");
+    std::snprintf(s.n_do, sizeof(s.n_do), "1");
     std::snprintf(s.n_pack, sizeof(s.n_pack), "1");
     std::snprintf(s.today[0], sizeof(s.today[0]), "dal rice");
     std::snprintf(s.today[1], sizeof(s.today[1]), "swim kit  Maya  Thursday");
-    std::snprintf(s.today[2], sizeof(s.today[2]), "oat milk");
+    std::snprintf(s.today[2], sizeof(s.today[2]), "call school  Maya");
+    std::snprintf(s.today[3], sizeof(s.today[3]), "oat milk");
     std::snprintf(s.buy[0], sizeof(s.buy[0]), "oat milk");
+    std::snprintf(s.chores[0], sizeof(s.chores[0]), "call school  Maya");
+    std::snprintf(s.pack[0], sizeof(s.pack[0]), "swim kit  Maya  Thursday");
+    std::snprintf(s.menu[0], sizeof(s.menu[0]), "*Mon  dal rice");
+    std::snprintf(s.menu[1], sizeof(s.menu[1]), " Tue");
+    std::snprintf(s.menu[2], sizeof(s.menu[2]), " Wed  pasta");
+    std::snprintf(s.menu[3], sizeof(s.menu[3]), " Thu");
+    std::snprintf(s.menu[4], sizeof(s.menu[4]), " Fri");
+    std::snprintf(s.menu[5], sizeof(s.menu[5]), " Sat");
+    std::snprintf(s.menu[6], sizeof(s.menu[6]), " Sun");
     return s;
 }
 
@@ -160,28 +170,31 @@ HearthState MakeBuy() {
     return s;
 }
 
-HearthState MakeRadio() {
+HearthState MakeMenu() {
     HearthState s = MakeToday();
-    s.screen = HearthScreen::kRadio;
-    s.ap_count = 5;
-    std::snprintf(s.aps[0].ssid, sizeof(s.aps[0].ssid), "orbital-5");
-    s.aps[0].rssi = -48;
-    std::snprintf(s.aps[1].ssid, sizeof(s.aps[1].ssid), "orbital-5-iot");
-    s.aps[1].rssi = -61;
-    std::snprintf(s.aps[2].ssid, sizeof(s.aps[2].ssid), "NeighborNet");
-    s.aps[2].rssi = -73;
-    std::snprintf(s.aps[3].ssid, sizeof(s.aps[3].ssid), "Printer-Guest");
-    s.aps[3].rssi = -79;
-    std::snprintf(s.aps[4].ssid, sizeof(s.aps[4].ssid), "xfinitywifi");
-    s.aps[4].rssi = -88;
+    s.screen = HearthScreen::kMenu;
+    s.ack[0] = '\0';
     return s;
 }
 
-HearthState MakePower() {
+HearthState MakeDo() {
     HearthState s = MakeToday();
-    s.screen = HearthScreen::kPower;
-    s.charging = true;
-    s.charge_complete = false;
+    s.screen = HearthScreen::kDo;
+    s.ack[0] = '\0';
+    return s;
+}
+
+HearthState MakePack() {
+    HearthState s = MakeToday();
+    s.screen = HearthScreen::kPack;
+    s.ack[0] = '\0';
+    return s;
+}
+
+HearthState MakePulse() {
+    HearthState s = MakeToday();
+    s.screen = HearthScreen::kPulse;
+    s.ack[0] = '\0';
     return s;
 }
 
@@ -208,8 +221,10 @@ int main(int argc, char** argv) {
 
     shot("01-today", MakeToday());
     shot("02-buy", MakeBuy());
-    shot("03-radio", MakeRadio());
-    shot("04-power", MakePower());
-    shot("05-listen", MakeListen());
+    shot("03-menu", MakeMenu());
+    shot("04-do", MakeDo());
+    shot("05-pack", MakePack());
+    shot("06-pulse", MakePulse());
+    shot("07-listen", MakeListen());
     return 0;
 }

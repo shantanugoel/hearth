@@ -8,8 +8,10 @@
 enum class HearthScreen : uint8_t {
     kToday = 0,
     kBuy,
-    kRadio,
-    kPower,
+    kMenu,
+    kDo,
+    kPack,
+    kPulse,
     kCount,
 };
 
@@ -54,6 +56,9 @@ struct HearthState {
     char n_pack[4] = "0";
     char today[6][48] = {};
     char buy[8][48] = {};
+    char chores[6][48] = {};
+    char pack[6][48] = {};
+    char menu[7][48] = {};
 };
 
 inline const char* HearthScreenName(HearthScreen screen) {
@@ -62,10 +67,14 @@ inline const char* HearthScreenName(HearthScreen screen) {
             return "Today";
         case HearthScreen::kBuy:
             return "Buy";
-        case HearthScreen::kRadio:
-            return "Radio";
-        case HearthScreen::kPower:
-            return "Power";
+        case HearthScreen::kMenu:
+            return "Menu";
+        case HearthScreen::kDo:
+            return "Do";
+        case HearthScreen::kPack:
+            return "Pack";
+        case HearthScreen::kPulse:
+            return "Pulse";
         default:
             return "?";
     }
@@ -101,9 +110,14 @@ inline void HearthApplyPoster(HearthState* state, const char* json) {
     HearthCopy(state->n_pack, sizeof(state->n_pack), "0");
     for (int i = 0; i < 6; ++i) {
         state->today[i][0] = '\0';
+        state->chores[i][0] = '\0';
+        state->pack[i][0] = '\0';
     }
     for (int i = 0; i < 8; ++i) {
         state->buy[i][0] = '\0';
+    }
+    for (int i = 0; i < 7; ++i) {
+        state->menu[i][0] = '\0';
     }
     HearthJsonString(json, "date", state->date, sizeof(state->date));
     HearthJsonString(json, "weather", state->weather, sizeof(state->weather));
@@ -121,6 +135,21 @@ inline void HearthApplyPoster(HearthState* state, const char* json) {
     for (int i = 0; i < 8; ++i) {
         HearthJsonString(json, buy_keys[i], state->buy[i],
                         sizeof(state->buy[i]));
+    }
+    const char* do_keys[] = {"d0", "d1", "d2", "d3", "d4", "d5"};
+    for (int i = 0; i < 6; ++i) {
+        HearthJsonString(json, do_keys[i], state->chores[i],
+                        sizeof(state->chores[i]));
+    }
+    const char* pack_keys[] = {"p0", "p1", "p2", "p3", "p4", "p5"};
+    for (int i = 0; i < 6; ++i) {
+        HearthJsonString(json, pack_keys[i], state->pack[i],
+                        sizeof(state->pack[i]));
+    }
+    const char* menu_keys[] = {"m0", "m1", "m2", "m3", "m4", "m5", "m6"};
+    for (int i = 0; i < 7; ++i) {
+        HearthJsonString(json, menu_keys[i], state->menu[i],
+                        sizeof(state->menu[i]));
     }
 }
 

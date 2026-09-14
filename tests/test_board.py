@@ -49,12 +49,25 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(a["id"], b["id"])
         self.assertEqual(self.board.counts()["buy"], 1)
 
+    def test_owner_attaches_on_repeat(self) -> None:
+        self.board.add("do", "call school")
+        again = self.board.add("do", "call school", owner="Maya")
+        self.assertEqual(again["owner"], "Maya")
+        self.assertEqual(self.board.counts()["do"], 1)
+
     def test_menu_and_poster(self) -> None:
         self.board.set_menu("mon", "dal rice")
+        self.board.add("do", "call school", owner="Maya")
+        self.board.add("pack", "swim kit", owner="Maya", when="Thursday")
         self.board.set_weather("29C  fair  24-32")
         poster = poster_from_board(self.board)
         self.assertEqual(poster["weather"], "29C  fair  24-32")
         self.assertIn("n_buy", poster)
+        self.assertIn("d0", poster)
+        self.assertIn("p0", poster)
+        self.assertIn("m0", poster)
+        self.assertIn("Maya", poster["d0"])
+        self.assertIn("Maya", poster["p0"])
 
     def test_weather_line(self) -> None:
         self.assertEqual(weather_line(0, 29.4, 32, 24), "29C  clear  24-32")

@@ -136,22 +136,22 @@ HearthState MakeToday() {
     std::snprintf(s.hub, sizeof(s.hub), "http://192.168.2.89:8790");
     std::snprintf(s.transcript, sizeof(s.transcript),
                   "we are out of oat milk");
-    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.4.0-lists");
+    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.5.0-kitchen");
     std::snprintf(s.date, sizeof(s.date), "Mon 14 Sep");
-    std::snprintf(s.weather, sizeof(s.weather), "29C  fair  24-32");
-    std::snprintf(s.meal, sizeof(s.meal), "dal rice");
+    std::snprintf(s.weather, sizeof(s.weather), "21C  drizzle  21-30");
+    std::snprintf(s.wx, sizeof(s.wx), "rain");
+    std::snprintf(s.meal, sizeof(s.meal), "pasta");
     std::snprintf(s.ack, sizeof(s.ack), "Added oat milk to Buy.");
-    std::snprintf(s.n_buy, sizeof(s.n_buy), "1");
-    std::snprintf(s.n_do, sizeof(s.n_do), "1");
-    std::snprintf(s.n_pack, sizeof(s.n_pack), "1");
-    std::snprintf(s.today[0], sizeof(s.today[0]), "dal rice");
-    std::snprintf(s.today[1], sizeof(s.today[1]), "swim kit  Maya  Thursday");
-    std::snprintf(s.today[2], sizeof(s.today[2]), "call school  Maya");
-    std::snprintf(s.today[3], sizeof(s.today[3]), "oat milk");
+    std::snprintf(s.n_buy, sizeof(s.n_buy), "4");
+    std::snprintf(s.n_notes, sizeof(s.n_notes), "3");
     std::snprintf(s.buy[0], sizeof(s.buy[0]), "oat milk");
-    std::snprintf(s.chores[0], sizeof(s.chores[0]), "call school  Maya");
-    std::snprintf(s.pack[0], sizeof(s.pack[0]), "swim kit  Maya  Thursday");
-    std::snprintf(s.menu[0], sizeof(s.menu[0]), "*Mon  dal rice");
+    std::snprintf(s.buy[1], sizeof(s.buy[1]), "eggs");
+    std::snprintf(s.notes[0], sizeof(s.notes[0]), "swim kit  Maya  Thursday");
+    std::snprintf(s.notes[1], sizeof(s.notes[1]), "leave bags by the door");
+    std::snprintf(s.alarm, sizeof(s.alarm), "07:00 school");
+    s.alarm_h = 7;
+    s.alarm_m = 0;
+    std::snprintf(s.menu[0], sizeof(s.menu[0]), "*Mon  pasta");
     std::snprintf(s.menu[1], sizeof(s.menu[1]), " Tue");
     std::snprintf(s.menu[2], sizeof(s.menu[2]), " Wed  pasta");
     std::snprintf(s.menu[3], sizeof(s.menu[3]), " Thu");
@@ -177,17 +177,12 @@ HearthState MakeMenu() {
     return s;
 }
 
-HearthState MakeDo() {
+HearthState MakeNotes() {
     HearthState s = MakeToday();
-    s.screen = HearthScreen::kDo;
+    s.screen = HearthScreen::kNotes;
     s.ack[0] = '\0';
-    return s;
-}
-
-HearthState MakePack() {
-    HearthState s = MakeToday();
-    s.screen = HearthScreen::kPack;
-    s.ack[0] = '\0';
+    std::snprintf(s.notes[0], sizeof(s.notes[0]), "swim kit  Maya  Thursday");
+    std::snprintf(s.notes[1], sizeof(s.notes[1]), "leave bags by the door");
     return s;
 }
 
@@ -222,9 +217,8 @@ int main(int argc, char** argv) {
     shot("01-today", MakeToday());
     shot("02-buy", MakeBuy());
     shot("03-menu", MakeMenu());
-    shot("04-do", MakeDo());
-    shot("05-pack", MakePack());
-    shot("06-pulse", MakePulse());
-    shot("07-listen", MakeListen());
+    shot("04-notes", MakeNotes());
+    shot("05-pulse", MakePulse());
+    shot("06-listen", MakeListen());
     return 0;
 }

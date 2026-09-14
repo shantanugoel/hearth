@@ -130,3 +130,42 @@ esp_err_t HearthRecordWhile(ZectrixBoard* board, bool (*held)(),
              static_cast<unsigned>(out->bytes));
     return ESP_OK;
 }
+
+esp_err_t HearthPlayAlarm(ZectrixBoard* board) {
+    if (board == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    board->SetAudioPower(true);
+    vTaskDelay(pdMS_TO_TICKS(40));
+    AudioCodec* codec = board->PrepareAudio();
+    if (codec == nullptr || !codec->valid()) {
+        ESP_LOGW(kTag, "alarm: codec missing");
+        return ESP_FAIL;
+    }
+    codec->EnableInput(false);
+    codec->EnableOutput(true);
+    codec->SetOutputVolume(80);
+    const int freqs[] = {880, 880, 1320};
+    const int nfreq = 3;
+    for (int t = 0; t < nfreq; ++t) {
+        const int freq = freqs[t];
+        const int samples = kRate / 5;  // 200 ms
+        std::vector<int16_t> buf(static_cast<size_t>(samples));
+        const int half = (kRate / freq) / 2;
+        if (half < 1) {
+            continue;
+        }
+        for (int i = 0; i < samples; ++i) {
+            buf[static_cast<size_t>(i)] =
+                ((i / half) % 2) ? 9000 : static_cast<int16_t>(-9000);
+        }
+        codec->OutputData(buf);
+        vTaskDelay(pdMS_TO_TICKS(90));
+        if (esp_task_wdt_status(xTaskGetCurrentTaskHandle()) == ESP_OK) {
+            (void)esp_task_wdt_reset();
+        }
+    }
+    codec->EnableOutput(false);
+    ESP_LOGI(kTag, "alarm chime");
+    return ESP_OK;
+}

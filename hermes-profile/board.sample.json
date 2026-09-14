@@ -10,25 +10,25 @@
       "added_at": "2026-09-14T00:00:00+0530"
     }
   ],
-  "do": [
+  "notes": [
     {
-      "id": "d1",
+      "id": "n1",
       "text": "call school",
       "owner": "Maya",
       "when": "",
       "status": "open",
       "source": "fridge",
+      "kind": "do",
       "added_at": "2026-09-14T00:00:00+0530"
-    }
-  ],
-  "pack": [
+    },
     {
-      "id": "p1",
+      "id": "n2",
       "text": "swim kit",
       "owner": "Maya",
       "when": "Thursday",
       "status": "open",
       "source": "fridge",
+      "kind": "pack",
       "added_at": "2026-09-14T00:00:00+0530"
     }
   ],
@@ -39,14 +39,23 @@
       "notes": ""
     }
   ],
+  "alarms": [
+    {
+      "id": "a1",
+      "hhmm": "07:00",
+      "text": "school",
+      "enabled": true
+    }
+  ],
   "weather": {
-    "line": "29C  fair  24-32",
+    "line": "21C  drizzle  21-30",
+    "kind": "rain",
     "fetched_at": ""
   },
   "meta": {
     "last_utterance": "we are out of oat milk",
     "last_ack": "Added oat milk to Buy.",
     "updated_at": "",
-    "next_id": 2
+    "next_id": 4
   }
 }

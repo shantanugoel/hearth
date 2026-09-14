@@ -14,13 +14,14 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
-from hub.board import Board, poster_from_board
+from hub.board import Board, poster_from_board, weather_kind
 from hub.hermes import HermesError, file_utterance
 from hub.stt import DEFAULT_STT_MODEL, DEFAULT_STT_URL, SttError, transcribe
 from hub.wavutil import PCM_RATE, parse_wav, wrap_pcm16
@@ -63,6 +64,8 @@ class HubState:
         self.last_error = ""
         self.utterances = 0
         self.last_weather_mono = 0.0
+        self.pending = False
+        self.lock = threading.Lock()
 
     def refresh_weather(self, force: bool = False) -> None:
         if self.board is None:
@@ -83,7 +86,7 @@ class HubState:
                 self.board.set_weather("weather unknown")
             sys.stderr.write("weather fetch failed: %s\n" % exc)
             return
-        self.board.set_weather(line)
+        self.board.set_weather(line, weather_kind(line))
         self.last_weather_mono = now
 
     def poster(self) -> dict:
@@ -91,7 +94,9 @@ class HubState:
             return {}
         self.refresh_weather()
         self.board.load()
-        return poster_from_board(self.board)
+        with self.lock:
+            pending = self.pending
+        return poster_from_board(self.board, pending=pending)
 
     def file_transcript(self, text: str, source: str = "fridge") -> str:
         if not text.strip():
@@ -103,6 +108,42 @@ class HubState:
             self.board.load()
             self.board.set_meta(utterance=text, ack=ack)
         return ack
+
+    def file_in_background(self, text: str, source: str = "fridge") -> None:
+        if self.file_fn is None or not text.strip():
+            with self.lock:
+                self.pending = False
+            return
+
+        def run() -> None:
+            ack = "heard, not filed"
+            err = ""
+            try:
+                ack = self.file_transcript(text, source)
+            except HermesError as exc:
+                ack = "heard, not filed"
+                err = str(exc)
+            except Exception as exc:  # noqa: BLE001
+                ack = "heard, not filed"
+                err = str(exc)
+            try:
+                if self.board is not None:
+                    self.board.load()
+                    self.board.set_meta(ack=ack)
+            except Exception as exc:  # noqa: BLE001
+                if not err:
+                    err = str(exc)
+            with self.lock:
+                self.last_ack = ack
+                self.last_error = err
+                self.pending = False
+
+        with self.lock:
+            self.pending = True
+            self.last_ack = ""
+        if self.board is not None:
+            self.board.set_meta(utterance=text, ack="")
+        threading.Thread(target=run, daemon=True, name="hearth-file").start()
 
 
 def _multipart_file(body: bytes, content_type: str) -> bytes | None:
@@ -141,7 +182,7 @@ def _read_json(body: bytes) -> dict:
 
 
 class HubHandler(BaseHTTPRequestHandler):
-    server_version = "HearthHub/0.3"
+    server_version = "HearthHub/0.5"
 
     @property
     def state(self) -> HubState:
@@ -179,6 +220,7 @@ class HubHandler(BaseHTTPRequestHandler):
                     "last_text": self.state.last_text,
                     "last_ack": self.state.last_ack,
                     "last_error": self.state.last_error,
+                    "pending": self.state.pending,
                 },
             )
             return
@@ -245,33 +287,23 @@ class HubHandler(BaseHTTPRequestHandler):
             return
         ms = int((time.monotonic() - started) * 1000)
         text = result.get("text") or ""
-        ack = ""
-        filed_ok = False
-        try:
-            ack = self.state.file_transcript(text, "fridge")
-            filed_ok = True
-        except HermesError as exc:
-            ack = "heard, not filed"
-            self.state.last_error = str(exc)
-        except Exception as exc:  # noqa: BLE001
-            ack = "heard, not filed"
-            self.state.last_error = str(exc)
         self.state.last_text = text
-        self.state.last_ack = ack
         self.state.last_ms = ms
-        if filed_ok:
-            self.state.last_error = ""
         self.state.utterances += 1
+        if self.state.file_fn is not None and text.strip():
+            self.state.file_in_background(text, "fridge")
+        else:
+            with self.state.lock:
+                self.state.pending = False
         payload = {
             "text": text,
             "raw": result.get("raw", text),
-            "ack": ack,
+            "ack": self.state.last_ack,
             "ms": ms,
             "model": result.get("model", self.state.stt_model),
         }
         payload.update(self.state.poster())
-        if ack:
-            payload["ack"] = ack
+        payload["text"] = text
         self._send_json(200, payload)
 
     def _apply(self) -> None:
@@ -388,11 +420,11 @@ def main(argv: list[str] | None = None) -> int:
                     target = text[lowered.find(word) + len(word) :].strip(" .")
                     break
             ops.append({"op": "complete", "list": "buy", "text": target or text})
-        elif "pack" in lowered:
+        elif "pack" in lowered or "note" in lowered or "remind" in lowered or "chore" in lowered:
             ops.append(
                 {
                     "op": "add",
-                    "list": "pack",
+                    "list": "notes",
                     "text": text.strip(),
                     "source": source,
                 }

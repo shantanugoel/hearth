@@ -36,10 +36,9 @@ class SimulatorTests(unittest.TestCase):
             "01-today.png",
             "02-buy.png",
             "03-menu.png",
-            "04-do.png",
-            "05-pack.png",
-            "06-pulse.png",
-            "07-listen.png",
+            "04-notes.png",
+            "05-pulse.png",
+            "06-listen.png",
         ):
             path = SIM / "out" / name
             self.assertTrue(path.exists(), path)

@@ -22,7 +22,9 @@ def _prompt(text: str, source: str) -> str:
         f"utterance: {text}\n\n"
         "File it into the household board using the hearth-board skill. "
         "Split mixed sentences. Tag a person only when named. "
-        "Completions are first-class. Do not invent chores, meals, or shops. "
+        "Completions and deletions are first-class. Notes holds chores, "
+        "bags, and leftover thoughts. Alarms use set_alarm/clear_alarm. "
+        "Do not invent chores, meals, shops, or alarms. "
         "Reply with one short sentence for the e-paper, nothing else."
     )
 

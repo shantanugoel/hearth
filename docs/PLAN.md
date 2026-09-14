@@ -28,7 +28,7 @@ Do not flash NOTE4C images. Back up the full 16 MiB factory flash before the fir
 
 **Hearth** — household working memory on a kitchen poster.
 
-People do not pick a list. They say “we’re out of oat milk and pack Maya’s swim kit for Thursday.” Hermes splits that into Buy vs Pack, tags Maya, and the next glance shows it.
+People do not pick a list. They say “we’re out of oat milk and pack Maya’s swim kit for Thursday.” Hermes splits that into Buy vs Notes, tags Maya, and the next glance shows it.
 
 The fridge is one mouth. Chat is another. Both write the same board.
 
@@ -47,14 +47,13 @@ The fridge is one mouth. Chat is another. Both write the same board.
 
 | Screen | Job | Layout |
 |---|---|---|
-| **Today** | Kitchen glance | Large date, weather one-liner, tonight’s meal as the headline, then 4–6 time-ordered items. Footer: `Buy 6 · Do 2 · Pack 1` |
-| **Buy** | Shopping | Clean list. Group Fridge / Pantry / Other only if it still fits. Named owners as a small suffix. |
+| **Today** | Kitchen glance | Date with weather icon on the right, tonight’s meal as the headline, then a peek of Buy and Notes. Left spine is icon tabs. |
+| **Buy** | Shopping | Clean list. Named owners as a small suffix. |
 | **Menu** | Week of dinners | Mon–Sun, today marked. One line per day. |
-| **Do** | Household work | Bins, plumber, “call school”. Owner suffix when named. |
-| **Pack** | Leaving the house | Only meaningful when something is upcoming. School bags, trips, Thursday football. |
-| **Pulse** | Device health | Battery, Wi-Fi, last heard phrase, Hermes ok. Last page, not daily. |
+| **Notes** | Household working memory | Chores, bags, leftover thoughts. Owner suffix when named. |
+| **Pulse** | Device health | Battery, Wi-Fi, last heard phrase, alarm, hub URL. Last page, not daily. |
 
-`today[]` is **derived**, not a fifth dump of todos: weather + tonight’s meal + timed Do/Pack + a few top Buy items.
+`today[]` is **derived**, not a fifth dump of todos: weather + tonight’s meal + a few Notes + a few top Buy items.
 
 ### Navigation
 
@@ -88,8 +87,8 @@ Canonical store: a **board file** (YAML or SQLite) owned by the hub, mutated by 
 board
   buy[]     text, optional owner, optional due/when, status, source
   menu[]    weekday, meal, optional notes
-  do[]      text, optional owner, optional due/when, status, source
-  pack[]    text, optional owner, optional when, status, source
+  notes[]   chores, bags, leftover thoughts; optional owner/when/kind
+  alarms[]  hhmm, optional text
   today[]   derived, not stored as a fifth list
   weather   current condition + high/low, refreshed by the hub
   meta      last_utterance, last_ack, updated_at
@@ -112,9 +111,9 @@ Dedicated profile, working name `hearth`. Tight `SOUL.md`:
 - You are the household chief of staff, not a chatbot.
 - File utterances into the board. Split mixed sentences.
 - Extract people when named; otherwise leave unassigned.
-- Completions are first-class.
+- Completions and deletions are first-class.
 - Reply in one short sentence. The fridge cannot show a paragraph.
-- Do not invent chores, meals, or shops.
+- Do not invent chores, meals, shops, or alarms.
 
 Fridge and chat share one session key, e.g. `X-Hermes-Session-Key: family:kitchen`, so they share one thread of memory while the board remains canonical.
 
@@ -127,21 +126,21 @@ Local STT/TTS already exist. Use them. Do not send audio to a cloud ASR unless l
 ```text
 Note 4  --wifi-->  hub on this machine  -->  Hermes profile `hearth`
   mic/buttons         STT (local qwen)         skill writes board
-  e-paper <---------  render 400×300          session: family:kitchen
-  speaker <---------  short TTS ack
+  e-paper <---------  poster JSON              oneshot, not sticky
+  speaker <---------  kitchen alarm chime
 ```
 
 Voice turn:
 
 1. Hold front button, speak, release.
 2. Device uploads PCM to the hub.
-3. Hub transcribes locally.
-4. Hub sends the transcript to profile `hearth`.
+3. Hub transcribes locally and returns immediately (`pending=1`).
+4. Hub SSHes a `hearth` oneshot in the background.
 5. Hermes updates the board, returns a short ack.
-6. Hub redraws Today (or the list that changed) and pushes the frame.
-7. Optional spoken ack on the speaker: “added milk.”
+6. Device polls `/v1/poster` until `pending=0` and paints Today.
+7. Kitchen alarm uses the ES8311 speaker; spoken TTS acks stay later.
 
-The device never talks to an LLM. Deep sleep between uses. E-paper keeps the last poster.
+The device never talks to an LLM or to the Hermes HTTP API. Deep sleep between uses. E-paper keeps the last poster.
 
 The device is a thin client: buttons, audio capture, display, sleep, Wi-Fi. All layout, lists, and language live on the hub.
 

@@ -106,6 +106,23 @@ void HearthCanvas::TextCentered(int y, const char* text, int scale,
     Text((kWidth - TextWidth(text, scale)) / 2, y, text, scale, inverted);
 }
 
+void HearthCanvas::Icon16(int x, int y, const uint16_t rows[16],
+                           bool inverted) {
+    if (rows == nullptr) {
+        return;
+    }
+    for (int row = 0; row < 16; ++row) {
+        for (int col = 0; col < 16; ++col) {
+            const bool set = (rows[row] & static_cast<uint16_t>(0x8000u >> col)) != 0;
+            if (inverted) {
+                Pixel(x + col, y + row, !set);
+            } else if (set) {
+                Pixel(x + col, y + row, true);
+            }
+        }
+    }
+}
+
 int HearthCanvas::TextWidth(const char* text, int scale) const {
     if (text == nullptr || scale <= 0) {
         return 0;

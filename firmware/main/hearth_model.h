@@ -9,8 +9,7 @@ enum class HearthScreen : uint8_t {
     kToday = 0,
     kBuy,
     kMenu,
-    kDo,
-    kPack,
+    kNotes,
     kPulse,
     kCount,
 };
@@ -49,16 +48,19 @@ struct HearthState {
     char note[48] = {};
     char date[24] = {};
     char weather[48] = {};
+    char wx[12] = {};
     char meal[64] = {};
     char ack[80] = {};
+    char pending[8] = {};
     char n_buy[4] = "0";
-    char n_do[4] = "0";
-    char n_pack[4] = "0";
-    char today[6][48] = {};
+    char n_notes[4] = "0";
     char buy[8][48] = {};
-    char chores[6][48] = {};
-    char pack[6][48] = {};
+    char notes[8][48] = {};
     char menu[7][48] = {};
+    char alarm[40] = {};
+    int alarm_h = -1;
+    int alarm_m = -1;
+    bool alarming = false;
 };
 
 inline const char* HearthScreenName(HearthScreen screen) {
@@ -69,10 +71,8 @@ inline const char* HearthScreenName(HearthScreen screen) {
             return "Buy";
         case HearthScreen::kMenu:
             return "Menu";
-        case HearthScreen::kDo:
-            return "Do";
-        case HearthScreen::kPack:
-            return "Pack";
+        case HearthScreen::kNotes:
+            return "Notes";
         case HearthScreen::kPulse:
             return "Pulse";
         default:
@@ -97,54 +97,69 @@ inline HearthScreen HearthScreenPrev(HearthScreen screen) {
     return static_cast<HearthScreen>(i);
 }
 
+inline bool HearthPending(const HearthState& state) {
+    return state.pending[0] == '1' || state.pending[0] == 't' ||
+           state.pending[0] == 'T';
+}
+
 inline void HearthApplyPoster(HearthState* state, const char* json) {
     if (state == nullptr || json == nullptr || json[0] == '\0') {
         return;
     }
     state->date[0] = '\0';
     state->weather[0] = '\0';
+    state->wx[0] = '\0';
     state->meal[0] = '\0';
     state->ack[0] = '\0';
+    state->pending[0] = '\0';
+    state->alarm[0] = '\0';
+    state->alarm_h = -1;
+    state->alarm_m = -1;
     HearthCopy(state->n_buy, sizeof(state->n_buy), "0");
-    HearthCopy(state->n_do, sizeof(state->n_do), "0");
-    HearthCopy(state->n_pack, sizeof(state->n_pack), "0");
-    for (int i = 0; i < 6; ++i) {
-        state->today[i][0] = '\0';
-        state->chores[i][0] = '\0';
-        state->pack[i][0] = '\0';
-    }
+    HearthCopy(state->n_notes, sizeof(state->n_notes), "0");
     for (int i = 0; i < 8; ++i) {
         state->buy[i][0] = '\0';
+        state->notes[i][0] = '\0';
     }
     for (int i = 0; i < 7; ++i) {
         state->menu[i][0] = '\0';
     }
     HearthJsonString(json, "date", state->date, sizeof(state->date));
     HearthJsonString(json, "weather", state->weather, sizeof(state->weather));
+    HearthJsonString(json, "wx", state->wx, sizeof(state->wx));
     HearthJsonString(json, "meal", state->meal, sizeof(state->meal));
     HearthJsonString(json, "ack", state->ack, sizeof(state->ack));
+    HearthJsonString(json, "pending", state->pending, sizeof(state->pending));
     HearthJsonString(json, "n_buy", state->n_buy, sizeof(state->n_buy));
-    HearthJsonString(json, "n_do", state->n_do, sizeof(state->n_do));
-    HearthJsonString(json, "n_pack", state->n_pack, sizeof(state->n_pack));
-    const char* today_keys[] = {"t0", "t1", "t2", "t3", "t4", "t5"};
-    for (int i = 0; i < 6; ++i) {
-        HearthJsonString(json, today_keys[i], state->today[i],
-                        sizeof(state->today[i]));
+    HearthJsonString(json, "n_notes", state->n_notes, sizeof(state->n_notes));
+    HearthJsonString(json, "alarm", state->alarm, sizeof(state->alarm));
+    char hour[8] = {};
+    char minute[8] = {};
+    if (HearthJsonString(json, "ahh", hour, sizeof(hour)) &&
+        HearthJsonString(json, "amm", minute, sizeof(minute)) &&
+        hour[0] >= '0' && hour[0] <= '9') {
+        state->alarm_h = 0;
+        state->alarm_m = 0;
+        for (const char* p = hour; *p >= '0' && *p <= '9'; ++p) {
+            state->alarm_h = state->alarm_h * 10 + (*p - '0');
+        }
+        for (const char* p = minute; *p >= '0' && *p <= '9'; ++p) {
+            state->alarm_m = state->alarm_m * 10 + (*p - '0');
+        }
+        if (state->alarm_h > 23 || state->alarm_m > 59) {
+            state->alarm_h = -1;
+            state->alarm_m = -1;
+        }
     }
     const char* buy_keys[] = {"b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"};
     for (int i = 0; i < 8; ++i) {
         HearthJsonString(json, buy_keys[i], state->buy[i],
                         sizeof(state->buy[i]));
     }
-    const char* do_keys[] = {"d0", "d1", "d2", "d3", "d4", "d5"};
-    for (int i = 0; i < 6; ++i) {
-        HearthJsonString(json, do_keys[i], state->chores[i],
-                        sizeof(state->chores[i]));
-    }
-    const char* pack_keys[] = {"p0", "p1", "p2", "p3", "p4", "p5"};
-    for (int i = 0; i < 6; ++i) {
-        HearthJsonString(json, pack_keys[i], state->pack[i],
-                        sizeof(state->pack[i]));
+    const char* note_keys[] = {"n0", "n1", "n2", "n3", "n4", "n5", "n6", "n7"};
+    for (int i = 0; i < 8; ++i) {
+        HearthJsonString(json, note_keys[i], state->notes[i],
+                        sizeof(state->notes[i]));
     }
     const char* menu_keys[] = {"m0", "m1", "m2", "m3", "m4", "m5", "m6"};
     for (int i = 0; i < 7; ++i) {

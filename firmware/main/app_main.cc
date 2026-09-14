@@ -1,15 +1,17 @@
-/* Hearth board firmware: STA Wi-Fi, hold-OK to speak, Today/Buy/Menu/Do/Pack.
+/* Hearth board firmware: STA Wi-Fi, hold-OK to speak, Today/Buy/Menu/Notes.
  *
- * Layout still lives on-device from hub JSON. Step 5 replaces this with
- * hub-rendered 16-gray bitmaps.
+ * Layout still lives on-device from hub JSON. Hub-rendered 16-gray bitmaps
+ * stay for a later step.
  */
 
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hearth_audio.h"
@@ -20,6 +22,7 @@
 #include "hearth_util.h"
 #include "hearth_wifi.h"
 #include "nvs_flash.h"
+#include "rtc_pcf8563.h"
 #include "zectrix_board.h"
 #include "zectrix_board_config.h"
 #include "zectrix_epd.h"
@@ -27,10 +30,12 @@
 namespace {
 
 constexpr const char* kTag = "hearth";
-constexpr const char* kFirmwareVersion = "v0.4.0-lists";
+constexpr const char* kFirmwareVersion = "v0.5.0-kitchen";
 constexpr TickType_t kPollTick = pdMS_TO_TICKS(50);
 constexpr uint32_t kMaxClipMs = 12000;
 constexpr uint32_t kHoldGateMs = 220;
+constexpr TickType_t kIdleSnap = pdMS_TO_TICKS(20000);
+constexpr TickType_t kPosterRefresh = pdMS_TO_TICKS(90000);
 
 HearthCanvas g_canvas;
 HearthState g_state;
@@ -38,8 +43,80 @@ HearthConfig g_config;
 ZectrixBoard g_board;
 zectrix_epd_handle_t g_epd = nullptr;
 char g_json[4096] = {};
+TickType_t g_last_input = 0;
+int g_rung_minute = -1;
 
 bool OkHeld() { return gpio_get_level(ZECTRIX_BUTTON_OK) == 0; }
+
+void KickIdle() { g_last_input = xTaskGetTickCount(); }
+
+void WdtPet() {
+    TaskHandle_t self = xTaskGetCurrentTaskHandle();
+    if (esp_task_wdt_status(self) == ESP_OK) {
+        (void)esp_task_wdt_reset();
+    }
+}
+
+void SyncRtcAlarm() {
+    RtcPcf8563* rtc = g_board.rtc();
+    if (rtc == nullptr) {
+        return;
+    }
+    if (g_state.alarm_h < 0) {
+        (void)rtc->DisableAlarm();
+        return;
+    }
+    tm now = {};
+    if (!rtc->GetTime(now)) {
+        return;
+    }
+    now.tm_hour = g_state.alarm_h;
+    now.tm_min = g_state.alarm_m;
+    now.tm_sec = 0;
+    (void)rtc->SetAlarm(now);
+}
+
+bool FetchPoster() {
+    if (!HearthWifiConnected() || g_config.hub[0] == '\0') {
+        return false;
+    }
+    static char previous[4096];
+    std::memcpy(previous, g_json, sizeof(previous));
+    if (HearthGetPoster(g_config.hub, g_json, sizeof(g_json)) != ESP_OK) {
+        return false;
+    }
+    if (std::strcmp(previous, g_json) == 0) {
+        return false;
+    }
+    HearthApplyPoster(&g_state, g_json);
+    SyncRtcAlarm();
+    return true;
+}
+
+void CheckAlarm() {
+    if (g_state.alarm_h < 0 || g_state.alarm[0] == '\0') {
+        g_state.alarming = false;
+        return;
+    }
+    RtcPcf8563* rtc = g_board.rtc();
+    tm now = {};
+    if (rtc == nullptr || !rtc->GetTime(now)) {
+        return;
+    }
+    const int minute = now.tm_hour * 60 + now.tm_min;
+    if (now.tm_hour == g_state.alarm_h && now.tm_min == g_state.alarm_m) {
+        if (g_rung_minute != minute) {
+            g_rung_minute = minute;
+            g_state.alarming = true;
+            (void)HearthPlayAlarm(&g_board);
+        }
+    } else {
+        g_state.alarming = false;
+        if (g_rung_minute != minute) {
+            g_rung_minute = -1;
+        }
+    }
+}
 
 void RefreshPower() {
     const ZectrixPowerSnapshot power = g_board.ReadPowerSnapshot();
@@ -161,21 +238,38 @@ void SpeakTurn() {
     }
     HearthApplyPoster(&g_state, g_json);
     g_state.screen = HearthScreen::kToday;
+    if (HearthPending(g_state)) {
+        ShowVoice(HearthVoice::kUploading, "filing", false);
+        for (int i = 0; i < 80; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            WdtPet();
+            if (FetchPoster() && !HearthPending(g_state)) {
+                break;
+            }
+        }
+    }
     std::snprintf(g_state.voice_status, sizeof(g_state.voice_status),
                   "stt %u ms", static_cast<unsigned>(stt_ms));
     g_state.voice = HearthVoice::kIdle;
     RefreshPower();
     RefreshRadio();
+    KickIdle();
     ESP_LOGI(kTag, "heard: %s", g_state.transcript);
     (void)Paint(true);
 }
 
 void HandleOkClick() {
+    if (g_state.alarming) {
+        g_state.alarming = false;
+        KickIdle();
+        return;
+    }
     if (g_state.screen == HearthScreen::kPulse) {
         (void)HearthWifiScan(&g_state);
     }
     RefreshPower();
     RefreshRadio();
+    KickIdle();
     (void)Paint(false);
 }
 
@@ -213,15 +307,14 @@ extern "C" void app_main(void) {
         (void)HearthWifiScan(&g_state);
         RefreshRadio();
         if (HearthWifiConnected() && g_config.hub[0] != '\0') {
-            if (HearthGetPoster(g_config.hub, g_json, sizeof(g_json)) ==
-                ESP_OK) {
-                HearthApplyPoster(&g_state, g_json);
-            }
+            (void)FetchPoster();
         }
     }
     RefreshPower();
     ESP_ERROR_CHECK(Paint(true));
     ESP_LOGI(kTag, "wifi painted: %s", g_state.wifi_status);
+    KickIdle();
+    TickType_t last_fetch = xTaskGetTickCount();
 
     for (;;) {
         if (OkHeld()) {
@@ -240,8 +333,24 @@ extern "C" void app_main(void) {
         if (!had_input) {
             RefreshPower();
             RefreshRadio();
+            CheckAlarm();
+            const TickType_t now = xTaskGetTickCount();
+            if (g_state.screen != HearthScreen::kToday &&
+                (now - g_last_input) > kIdleSnap) {
+                g_state.screen = HearthScreen::kToday;
+                g_state.voice = HearthVoice::kIdle;
+                (void)Paint(true);
+                KickIdle();
+            }
+            if ((now - last_fetch) > kPosterRefresh) {
+                last_fetch = now;
+                if (FetchPoster()) {
+                    (void)Paint(false);
+                }
+            }
             continue;
         }
+        KickIdle();
 
         if (event.button == ZectrixButton::kOk) {
             if (OkHeld()) {
@@ -254,6 +363,7 @@ extern "C" void app_main(void) {
 
         if (event.button == ZectrixButton::kDown &&
             event.action == ZectrixButtonAction::kLongPress) {
+            SyncRtcAlarm();
             Shutdown();
         }
 

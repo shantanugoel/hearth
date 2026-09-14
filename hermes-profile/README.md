@@ -19,5 +19,6 @@ hearth --yolo --skills hearth-board -z '…'
 
 Do not make `hearth` the sticky default profile. The kitchen board lives on
 the hub (`~/.local/share/hearth/board.json` on the host), not in Hermes memory.
+The NOTE4 never calls the Hermes HTTP API; the hub SSHes a oneshot after STT.
 The installer disables bundled coding skills in `config.yaml` without
 deleting them, and writes `HEARTH_HUB_URL` into the profile `.env`.

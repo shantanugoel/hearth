@@ -20,4 +20,7 @@ void HearthClipFree(HearthClip* clip);
 esp_err_t HearthRecordWhile(ZectrixBoard* board, bool (*held)(),
                             uint32_t max_ms, HearthClip* out);
 
+// Kitchen alarm chime on the ES8311 speaker.
+esp_err_t HearthPlayAlarm(ZectrixBoard* board);
+
 #endif  // HEARTH_AUDIO_H_

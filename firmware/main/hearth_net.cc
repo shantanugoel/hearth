@@ -7,6 +7,8 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "hearth_util.h"
 
 namespace {
@@ -44,9 +46,9 @@ void JoinHub(char* url, size_t cap, const char* hub_base, const char* path) {
     std::snprintf(url, cap, slash ? "%s%s" : "%s/%s", hub_base, path);
 }
 
-esp_err_t Perform(const char* url, int method, const uint8_t* body,
-                  size_t body_len, const char* content_type, char* out,
-                  size_t cap) {
+esp_err_t Perform(const char* url, esp_http_client_method_t method,
+                  const uint8_t* body, size_t body_len, const char* content_type,
+                  char* out, size_t cap) {
     if (out == nullptr || cap == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -71,7 +73,11 @@ esp_err_t Perform(const char* url, int method, const uint8_t* body,
                                         reinterpret_cast<const char*>(body),
                                         static_cast<int>(body_len));
     }
+    TaskHandle_t self = xTaskGetCurrentTaskHandle();
+    (void)esp_task_wdt_reset();
+    (void)esp_task_wdt_delete(self);
     const esp_err_t err = esp_http_client_perform(client);
+    (void)esp_task_wdt_add(self);
     const int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
     if (err != ESP_OK) {

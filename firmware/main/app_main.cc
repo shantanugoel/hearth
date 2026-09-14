@@ -157,7 +157,7 @@ void SpeakTurn() {
     }
     if (!HearthJsonString(body, "text", g_state.transcript,
                           sizeof(g_state.transcript))) {
-        HearthCopy(g_state.transcript, sizeof(g_state.transcript), body);
+        HearthCopy(g_state.transcript, sizeof(g_state.transcript), "no text");
     }
     HearthApplyPoster(&g_state, body);
     g_state.screen = HearthScreen::kToday;

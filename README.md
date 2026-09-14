@@ -9,13 +9,30 @@ This repository is the firmware, hub, and tools. The product plan is
 
 ## Status
 
-Step 0: factory flash dump and restore playbook. The 16 MiB as-found image is
-**not** in git. See [docs/FACTORY_FLASH.md](docs/FACTORY_FLASH.md).
+- Step 0: factory flash dump and restore playbook. The 16 MiB as-found image is **not** in git. See [docs/FACTORY_FLASH.md](docs/FACTORY_FLASH.md).
+- Step 1: ESP-IDF bring-up (display, buttons, power-hold, Wi-Fi scan, sleep). See [docs/BRINGUP.md](docs/BRINGUP.md).
 
 ## Hardware
 
 Monochrome NOTE4 Developer Kit, PCB V1.0, ESP32-S3 N16R8. Do not flash NOTE4C
 images. Device identity for this unit: [docs/hardware/DEVICE.md](docs/hardware/DEVICE.md).
+
+## Simulator
+
+```bash
+make -C sim run
+```
+
+## Firmware
+
+```bash
+./tools/idf.sh set-target esp32s3
+./tools/idf.sh build
+./tools/idf.sh -p /dev/ttyACM0 flash monitor
+```
+
+Flashing replaces the as-found image. Restore is documented in
+[docs/FACTORY_FLASH.md](docs/FACTORY_FLASH.md).
 
 ## Factory dump
 

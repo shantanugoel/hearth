@@ -1,0 +1,4 @@
+dependencies:
+  # Pulled in by the ES8311 adapter. Hearth bring-up does not play audio yet,
+  # but the board component links the codec unconditionally.
+  espressif/esp_codec_dev: "~1.5"

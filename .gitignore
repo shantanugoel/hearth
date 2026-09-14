@@ -4,12 +4,11 @@ backups/*.img
 backups/*.sha256
 !backups/.gitkeep
 
-# ESP-IDF
+# ESP-IDF generated. Commit sdkconfig.defaults and dependencies.lock.
 firmware/build/
 firmware/sdkconfig
 firmware/sdkconfig.old
 firmware/managed_components/
-firmware/dependencies.lock
 
 # Hub / Python
 .venv/
@@ -21,7 +20,11 @@ hub/.venv/
 
 # Simulator output
 sim/out/
+sim/out/hearth-sim
 *.pyc
+
+# Host test binaries
+tests/test_hearth_model
 
 # Secrets and local config
 .env

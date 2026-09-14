@@ -1,0 +1,5 @@
+version: "1.0.0"
+description: "SSD2683 e-paper driver for the Zectrix ESP32-S3 4.2-inch board"
+license: "MIT"
+dependencies:
+  idf: ">=5.4"

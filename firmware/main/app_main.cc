@@ -37,6 +37,7 @@ HearthState g_state;
 HearthConfig g_config;
 ZectrixBoard g_board;
 zectrix_epd_handle_t g_epd = nullptr;
+char g_json[4096] = {};
 
 bool OkHeld() { return gpio_get_level(ZECTRIX_BUTTON_OK) == 0; }
 
@@ -142,10 +143,9 @@ void SpeakTurn() {
     }
 
     ShowVoice(HearthVoice::kUploading, "sending to hub", false);
-    char body[4096];
     uint32_t stt_ms = 0;
     const esp_err_t posted = HearthPostUtterance(
-        g_config.hub, clip.wav, clip.bytes, body, sizeof(body), &stt_ms);
+        g_config.hub, clip.wav, clip.bytes, g_json, sizeof(g_json), &stt_ms);
     g_state.last_clip_ms = clip.ms;
     HearthClipFree(&clip);
     g_board.SetPowerLed(false);
@@ -155,11 +155,11 @@ void SpeakTurn() {
         ShowVoice(HearthVoice::kError, "hub unreachable", false);
         return;
     }
-    if (!HearthJsonString(body, "text", g_state.transcript,
+    if (!HearthJsonString(g_json, "text", g_state.transcript,
                           sizeof(g_state.transcript))) {
         HearthCopy(g_state.transcript, sizeof(g_state.transcript), "no text");
     }
-    HearthApplyPoster(&g_state, body);
+    HearthApplyPoster(&g_state, g_json);
     g_state.screen = HearthScreen::kToday;
     std::snprintf(g_state.voice_status, sizeof(g_state.voice_status),
                   "stt %u ms", static_cast<unsigned>(stt_ms));
@@ -213,10 +213,9 @@ extern "C" void app_main(void) {
         (void)HearthWifiScan(&g_state);
         RefreshRadio();
         if (HearthWifiConnected() && g_config.hub[0] != '\0') {
-            char poster[4096];
-            if (HearthGetPoster(g_config.hub, poster, sizeof(poster)) ==
+            if (HearthGetPoster(g_config.hub, g_json, sizeof(g_json)) ==
                 ESP_OK) {
-                HearthApplyPoster(&g_state, poster);
+                HearthApplyPoster(&g_state, g_json);
             }
         }
     }

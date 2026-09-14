@@ -21,8 +21,11 @@ struct Sink {
     int length = 0;
 };
 
+// HTTP is only called from the main task. Keep the 4 KiB sink off the
+// 8 KiB main stack; stacking it next to a poster buffer overflows.
+Sink g_sink;
+
 esp_err_t OnHttp(esp_http_client_event_t* event) {
-    esp_task_wdt_reset();
     if (event->event_id != HTTP_EVENT_ON_DATA) {
         return ESP_OK;
     }
@@ -53,13 +56,14 @@ esp_err_t Perform(const char* url, esp_http_client_method_t method,
         return ESP_ERR_INVALID_ARG;
     }
     out[0] = '\0';
-    Sink sink;
+    g_sink.length = 0;
+    g_sink.buffer[0] = '\0';
     esp_http_client_config_t cfg = {};
     cfg.url = url;
     cfg.method = method;
     cfg.timeout_ms = 180000;
     cfg.event_handler = OnHttp;
-    cfg.user_data = &sink;
+    cfg.user_data = &g_sink;
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (client == nullptr) {
@@ -74,10 +78,15 @@ esp_err_t Perform(const char* url, esp_http_client_method_t method,
                                         static_cast<int>(body_len));
     }
     TaskHandle_t self = xTaskGetCurrentTaskHandle();
-    (void)esp_task_wdt_reset();
-    (void)esp_task_wdt_delete(self);
+    const bool watched = esp_task_wdt_status(self) == ESP_OK;
+    if (watched) {
+        (void)esp_task_wdt_reset();
+        (void)esp_task_wdt_delete(self);
+    }
     const esp_err_t err = esp_http_client_perform(client);
-    (void)esp_task_wdt_add(self);
+    if (watched) {
+        (void)esp_task_wdt_add(self);
+    }
     const int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
     if (err != ESP_OK) {
@@ -85,10 +94,10 @@ esp_err_t Perform(const char* url, esp_http_client_method_t method,
         return err;
     }
     if (status != 200) {
-        ESP_LOGW(kTag, "%s HTTP %d body=%s", url, status, sink.buffer);
+        ESP_LOGW(kTag, "%s HTTP %d body=%s", url, status, g_sink.buffer);
         return ESP_FAIL;
     }
-    HearthCopy(out, cap, sink.buffer);
+    HearthCopy(out, cap, g_sink.buffer);
     return ESP_OK;
 }
 

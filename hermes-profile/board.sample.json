@@ -1,0 +1,42 @@
+{
+  "buy": [
+    {
+      "id": "b1",
+      "text": "oat milk",
+      "owner": "",
+      "when": "",
+      "status": "open",
+      "source": "fridge",
+      "added_at": "2026-09-14T00:00:00+0530"
+    }
+  ],
+  "do": [],
+  "pack": [
+    {
+      "id": "p1",
+      "text": "swim kit",
+      "owner": "Maya",
+      "when": "Thursday",
+      "status": "open",
+      "source": "fridge",
+      "added_at": "2026-09-14T00:00:00+0530"
+    }
+  ],
+  "menu": [
+    {
+      "weekday": "mon",
+      "meal": "dal rice",
+      "notes": ""
+    }
+  ],
+  "weather": {
+    "line": "29C  fair  24-32",
+    "fetched_at": ""
+  },
+  "meta": {
+    "last_utterance": "we are out of oat milk",
+    "last_ack": "Added oat milk to Buy.",
+    "updated_at": "",
+    "next_id": 2
+  }
+}

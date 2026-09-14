@@ -12,12 +12,12 @@ constexpr int kBodyWidth = HearthCanvas::kWidth - 2 * kMargin;
 
 void Footer(HearthCanvas& canvas, const HearthState& state) {
     canvas.HLine(kMargin, 268, HearthCanvas::kWidth - 2 * kMargin);
-    const char* all = "Home  Heard  Radio  Power";
+    const char* all = "Today  Buy  Radio  Power";
     canvas.TextCentered(274, all, 1);
     const int total = canvas.TextWidth(all, 1);
     const int start = (HearthCanvas::kWidth - total) / 2;
     int x = start;
-    const char* words[] = {"Home", "Heard", "Radio", "Power"};
+    const char* words[] = {"Today", "Buy", "Radio", "Power"};
     const int index = static_cast<int>(state.screen);
     for (int i = 0; i < 4; ++i) {
         const int w = canvas.TextWidth(words[i], 1);
@@ -70,7 +70,6 @@ void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text
             }
         }
         if (word_px > width && used == 0) {
-            // Hard-wrap a single overlong token.
             for (int i = 0; i < copy && row < max_lines; ++i) {
                 char ch[2] = {word[i], '\0'};
                 const int ch_px = canvas.TextWidth(ch, scale);
@@ -102,51 +101,73 @@ void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text
     }
 }
 
-void DrawHome(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Text(kMargin, 18, "HEARTH", 4);
-    canvas.HLine(kMargin, 88, 220);
-    canvas.Text(kMargin, 100, "household working memory", 1);
-    canvas.Text(kMargin, 122, "hold OK to speak", 1);
-    canvas.Text(kMargin, 148, state.wifi_status, 1);
-    if (state.ip[0] != '\0') {
-        canvas.Text(kMargin, 170, state.ip, 1);
-    } else {
-        canvas.Text(kMargin, 170, "no ip yet", 1);
+void DrawToday(HearthCanvas& canvas, const HearthState& state) {
+    const char* date = state.date[0] ? state.date : "Today";
+    canvas.Text(kMargin, 16, date, 2);
+    canvas.HLine(kMargin, 52, 220);
+    const char* weather =
+        state.weather[0] ? state.weather : "weather unknown";
+    canvas.Text(kMargin, 60, weather, 1);
+
+    int y = 86;
+    if (state.meal[0] != '\0') {
+        DrawWrapped(canvas, kMargin, y, kBodyWidth, state.meal, 2, 28, 2);
+        y = 142;
     }
-    if (state.transcript[0] != '\0') {
-        DrawWrapped(canvas, kMargin, 196, kBodyWidth, state.transcript, 1, 18,
-                    3);
-    } else {
-        canvas.Text(kMargin, 196, "nothing heard yet", 1);
+
+    bool any = false;
+    for (int i = 0; i < 6; ++i) {
+        if (state.today[i][0] == '\0') {
+            continue;
+        }
+        // Meal is already the hero; skip a duplicate first today line.
+        if (state.meal[0] != '\0' &&
+            std::strcmp(state.today[i], state.meal) == 0) {
+            continue;
+        }
+        any = true;
+        canvas.Text(kMargin, y, state.today[i], 1);
+        y += 20;
+        if (y > 220) {
+            break;
+        }
     }
-    char line[64];
-    if (state.battery_valid) {
-        std::snprintf(line, sizeof(line), "battery  %u%%   %u mV",
-                      state.battery_percent, state.battery_mv);
-    } else {
-        std::snprintf(line, sizeof(line), "battery  unknown");
+    if (!any && state.meal[0] == '\0') {
+        canvas.Text(kMargin, 96, "kitchen is clear.", 1);
+        canvas.Text(kMargin, 118, "hold OK to speak.", 1);
     }
-    canvas.Text(kMargin, 248, line, 1);
+
+    if (state.ack[0] != '\0') {
+        DrawWrapped(canvas, kMargin, 230, kBodyWidth, state.ack, 1, 16, 1);
+    } else {
+        char counts[48];
+        std::snprintf(counts, sizeof(counts), "Buy %s  ·  Do %s  ·  Pack %s",
+                      state.n_buy[0] ? state.n_buy : "0",
+                      state.n_do[0] ? state.n_do : "0",
+                      state.n_pack[0] ? state.n_pack : "0");
+        canvas.Text(kMargin, 230, counts, 1);
+    }
 }
 
-void DrawHeard(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Text(kMargin, 18, "Heard", 2);
-    canvas.HLine(kMargin, 56, 110);
-    if (state.transcript[0] == '\0') {
-        canvas.Text(kMargin, 80, "nothing yet.", 1);
-        canvas.Text(kMargin, 104, "hold OK and speak.", 1);
-    } else {
-        DrawWrapped(canvas, kMargin, 72, kBodyWidth, state.transcript, 1, 20,
-                    7);
+void DrawBuy(HearthCanvas& canvas, const HearthState& state) {
+    canvas.Text(kMargin, 16, "Buy", 2);
+    canvas.HLine(kMargin, 52, 80);
+    bool any = false;
+    int y = 68;
+    for (int i = 0; i < 8; ++i) {
+        if (state.buy[i][0] == '\0') {
+            continue;
+        }
+        any = true;
+        canvas.Text(kMargin, y, state.buy[i], 1);
+        y += 22;
     }
-    char line[80];
-    if (state.last_clip_ms > 0) {
-        std::snprintf(line, sizeof(line), "clip  %u ms",
-                      static_cast<unsigned>(state.last_clip_ms));
-        canvas.Text(kMargin, 224, line, 1);
+    if (!any) {
+        canvas.Text(kMargin, 80, "nothing to buy.", 1);
+        canvas.Text(kMargin, 104, "hold OK to speak.", 1);
     }
-    if (state.hub[0] != '\0') {
-        canvas.Text(kMargin, 246, state.hub, 1);
+    if (state.ack[0] != '\0') {
+        DrawWrapped(canvas, kMargin, 246, kBodyWidth, state.ack, 1, 16, 1);
     }
 }
 
@@ -220,11 +241,11 @@ void DrawVoiceOverlay(HearthCanvas& canvas, const HearthState& state) {
 void HearthDraw(HearthCanvas& canvas, const HearthState& state) {
     canvas.Clear(true);
     switch (state.screen) {
-        case HearthScreen::kHome:
-            DrawHome(canvas, state);
+        case HearthScreen::kToday:
+            DrawToday(canvas, state);
             break;
-        case HearthScreen::kHeard:
-            DrawHeard(canvas, state);
+        case HearthScreen::kBuy:
+            DrawBuy(canvas, state);
             break;
         case HearthScreen::kRadio:
             DrawRadio(canvas, state);

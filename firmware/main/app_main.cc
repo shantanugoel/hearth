@@ -1,7 +1,7 @@
-/* Hearth voice firmware: STA Wi-Fi, hold-OK to record, POST to hub, Heard.
+/* Hearth board firmware: STA Wi-Fi, hold-OK to speak, Today / Buy posters.
  *
- * Layout still lives on-device for this step. The hub only transcribes.
- * Later steps replace these posters with hub-rendered bitmaps.
+ * Layout still lives on-device from hub JSON. Step 5 replaces this with
+ * hub-rendered 16-gray bitmaps.
  */
 
 #include <cstdio>
@@ -27,7 +27,7 @@
 namespace {
 
 constexpr const char* kTag = "hearth";
-constexpr const char* kFirmwareVersion = "v0.2.0-voice";
+constexpr const char* kFirmwareVersion = "v0.3.0-board";
 constexpr TickType_t kPollTick = pdMS_TO_TICKS(50);
 constexpr uint32_t kMaxClipMs = 12000;
 constexpr uint32_t kHoldGateMs = 220;
@@ -142,10 +142,10 @@ void SpeakTurn() {
     }
 
     ShowVoice(HearthVoice::kUploading, "sending to hub", false);
-    char text[sizeof(g_state.transcript)];
+    char body[3072];
     uint32_t stt_ms = 0;
     const esp_err_t posted = HearthPostUtterance(
-        g_config.hub, clip.wav, clip.bytes, text, sizeof(text), &stt_ms);
+        g_config.hub, clip.wav, clip.bytes, body, sizeof(body), &stt_ms);
     g_state.last_clip_ms = clip.ms;
     HearthClipFree(&clip);
     g_board.SetPowerLed(false);
@@ -155,8 +155,12 @@ void SpeakTurn() {
         ShowVoice(HearthVoice::kError, "hub unreachable", false);
         return;
     }
-    HearthCopy(g_state.transcript, sizeof(g_state.transcript), text);
-    g_state.screen = HearthScreen::kHeard;
+    if (!HearthJsonString(body, "text", g_state.transcript,
+                          sizeof(g_state.transcript))) {
+        HearthCopy(g_state.transcript, sizeof(g_state.transcript), body);
+    }
+    HearthApplyPoster(&g_state, body);
+    g_state.screen = HearthScreen::kToday;
     std::snprintf(g_state.voice_status, sizeof(g_state.voice_status),
                   "stt %u ms", static_cast<unsigned>(stt_ms));
     g_state.voice = HearthVoice::kIdle;
@@ -208,6 +212,13 @@ extern "C" void app_main(void) {
         RefreshRadio();
         (void)HearthWifiScan(&g_state);
         RefreshRadio();
+        if (HearthWifiConnected() && g_config.hub[0] != '\0') {
+            char poster[3072];
+            if (HearthGetPoster(g_config.hub, poster, sizeof(poster)) ==
+                ESP_OK) {
+                HearthApplyPoster(&g_state, poster);
+            }
+        }
     }
     RefreshPower();
     ESP_ERROR_CHECK(Paint(true));

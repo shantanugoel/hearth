@@ -27,12 +27,21 @@ sim/out/hearth-sim
 # Host test binaries
 tests/test_hearth_model
 
+# Session dumps from the coding agent, never the product.
+agent-tools/
+
+# Live board if copied into the tree. Canonical path is
+# ~/.local/share/hearth/board.json.
+data/board.json
+
 # Secrets and local config
 .env
 .env.*
 !.env.example
 secrets/
 *.pem
+board.local.json
+
 
 # OS
 .DS_Store

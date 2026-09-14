@@ -1,6 +1,9 @@
 """Hearth hub HTTP server.
 
-POST /v1/utterance  audio/wav or raw PCM16  ->  {text, raw, ms}
+POST /v1/utterance  audio/wav or raw PCM16  ->  {text, ack, poster fields, ms}
+GET  /v1/poster
+GET  /v1/board
+POST /v1/board/apply
 GET  /health
 GET  /
 """
@@ -17,10 +20,21 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
+from hub.board import Board, poster_from_board
+from hub.hermes import HermesError, file_utterance
 from hub.stt import DEFAULT_STT_MODEL, DEFAULT_STT_URL, SttError, transcribe
 from hub.wavutil import PCM_RATE, parse_wav, wrap_pcm16
+from hub.weather import fetch_weather
 
 TranscribeFn = Callable[[bytes], dict]
+FileFn = Callable[[str, str], str]
+
+
+def default_board_path() -> Path:
+    override = os.environ.get("HEARTH_BOARD_PATH")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".local/share/hearth/board.json"
 
 
 class HubState:
@@ -30,15 +44,65 @@ class HubState:
         dump_dir: Path | None = None,
         stt_url: str = DEFAULT_STT_URL,
         stt_model: str = DEFAULT_STT_MODEL,
+        board: Board | None = None,
+        file_fn: FileFn | None = None,
+        lat: float | None = None,
+        lon: float | None = None,
     ) -> None:
         self.transcribe_fn = transcribe_fn
         self.dump_dir = dump_dir
         self.stt_url = stt_url
         self.stt_model = stt_model
+        self.board = board
+        self.file_fn = file_fn
+        self.lat = lat
+        self.lon = lon
         self.last_text = ""
+        self.last_ack = ""
         self.last_ms = 0
         self.last_error = ""
         self.utterances = 0
+        self.last_weather_mono = 0.0
+
+    def refresh_weather(self, force: bool = False) -> None:
+        if self.board is None:
+            return
+        now = time.monotonic()
+        if not force and self.board.data["weather"]["line"] and (
+            now - self.last_weather_mono < 900
+        ):
+            return
+        if self.lat is None or self.lon is None:
+            if not self.board.data["weather"]["line"]:
+                self.board.set_weather("weather unknown")
+            return
+        try:
+            line = fetch_weather(self.lat, self.lon)
+        except Exception as exc:  # noqa: BLE001
+            if not self.board.data["weather"]["line"]:
+                self.board.set_weather("weather unknown")
+            sys.stderr.write("weather fetch failed: %s\n" % exc)
+            return
+        self.board.set_weather(line)
+        self.last_weather_mono = now
+
+    def poster(self) -> dict:
+        if self.board is None:
+            return {}
+        self.refresh_weather()
+        self.board.load()
+        return poster_from_board(self.board)
+
+    def file_transcript(self, text: str, source: str = "fridge") -> str:
+        if not text.strip():
+            return ""
+        if self.file_fn is None:
+            return ""
+        ack = self.file_fn(text, source)
+        if self.board is not None:
+            self.board.load()
+            self.board.set_meta(utterance=text, ack=ack)
+        return ack
 
 
 def _multipart_file(body: bytes, content_type: str) -> bytes | None:
@@ -53,7 +117,7 @@ def _multipart_file(body: bytes, content_type: str) -> bytes | None:
         return None
     marker = b"--" + boundary.encode("ascii", errors="replace")
     for section in body.split(marker):
-        if b"filename=" not in section and b"name=\"file\"" not in section:
+        if b"filename=" not in section and b'name="file"' not in section:
             continue
         split = section.split(b"\r\n\r\n", 1)
         if len(split) != 2:
@@ -67,8 +131,17 @@ def _multipart_file(body: bytes, content_type: str) -> bytes | None:
     return None
 
 
+def _read_json(body: bytes) -> dict:
+    if not body:
+        return {}
+    payload = json.loads(body.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("JSON object required")
+    return payload
+
+
 class HubHandler(BaseHTTPRequestHandler):
-    server_version = "HearthHub/0.2"
+    server_version = "HearthHub/0.3"
 
     @property
     def state(self) -> HubState:
@@ -104,9 +177,20 @@ class HubHandler(BaseHTTPRequestHandler):
                     "model": self.state.stt_model,
                     "utterances": self.state.utterances,
                     "last_text": self.state.last_text,
+                    "last_ack": self.state.last_ack,
                     "last_error": self.state.last_error,
                 },
             )
+            return
+        if path in ("/v1/poster", "/v1/snapshot"):
+            self._send_json(200, self.state.poster())
+            return
+        if path == "/v1/board":
+            if self.state.board is None:
+                self._send_json(503, {"error": "no board"})
+                return
+            self.state.board.load()
+            self._send_json(200, self.state.board.snapshot())
             return
         if path in ("/", "/index.html"):
             self._send_text(
@@ -115,13 +199,18 @@ class HubHandler(BaseHTTPRequestHandler):
                 f"stt {self.state.stt_model}\n"
                 f"utterances {self.state.utterances}\n"
                 f"last {self.state.last_text or '(none)'}\n"
-                "POST /v1/utterance with audio/wav\n",
+                f"ack {self.state.last_ack or '(none)'}\n"
+                "POST /v1/utterance with audio/wav\n"
+                "GET /v1/poster  GET /v1/board  POST /v1/board/apply\n",
             )
             return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path == "/v1/board/apply":
+            self._apply()
+            return
         if path != "/v1/utterance":
             self._send_json(404, {"error": "not found"})
             return
@@ -156,18 +245,61 @@ class HubHandler(BaseHTTPRequestHandler):
             return
         ms = int((time.monotonic() - started) * 1000)
         text = result.get("text") or ""
+        ack = ""
+        filed_ok = False
+        try:
+            ack = self.state.file_transcript(text, "fridge")
+            filed_ok = True
+        except HermesError as exc:
+            ack = "heard, not filed"
+            self.state.last_error = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            ack = "heard, not filed"
+            self.state.last_error = str(exc)
         self.state.last_text = text
+        self.state.last_ack = ack
         self.state.last_ms = ms
-        self.state.last_error = ""
+        if filed_ok:
+            self.state.last_error = ""
         self.state.utterances += 1
+        payload = {
+            "text": text,
+            "raw": result.get("raw", text),
+            "ack": ack,
+            "ms": ms,
+            "model": result.get("model", self.state.stt_model),
+        }
+        payload.update(self.state.poster())
+        if ack:
+            payload["ack"] = ack
+        self._send_json(200, payload)
+
+    def _apply(self) -> None:
+        if self.state.board is None:
+            self._send_json(503, {"error": "no board"})
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > 64 * 1024:
+            self._send_json(400, {"error": "need a JSON body"})
+            return
+        try:
+            payload = _read_json(self.rfile.read(length))
+            ops = payload.get("ops")
+            if not isinstance(ops, list):
+                raise ValueError("ops must be a list")
+            results = self.state.board.apply(
+                ops, source=str(payload.get("source") or "fridge")
+            )
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+        ack = str(payload.get("ack") or "")
+        if ack:
+            self.state.board.set_meta(ack=ack)
+            self.state.last_ack = ack
         self._send_json(
             200,
-            {
-                "text": text,
-                "raw": result.get("raw", text),
-                "ms": ms,
-                "model": result.get("model", self.state.stt_model),
-            },
+            {"ok": True, "results": results, "poster": self.state.poster()},
         )
 
     def _to_wav(self, body: bytes, ctype: str, query: dict) -> bytes:
@@ -178,7 +310,6 @@ class HubHandler(BaseHTTPRequestHandler):
         if "wav" in ctype.lower() or body[:4] == b"RIFF":
             pcm, rate = parse_wav(body)
             if rate != PCM_RATE:
-                # Device and STT both expect 16 kHz; refuse to resample here.
                 raise ValueError(f"need 16 kHz WAV, got {rate}")
             return wrap_pcm16(pcm, rate)
         rate = PCM_RATE
@@ -203,6 +334,16 @@ def make_server(
     return httpd
 
 
+def _env_float(name: str) -> float | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Hearth hub")
     parser.add_argument("--host", default="0.0.0.0")
@@ -210,10 +351,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stt-url", default=DEFAULT_STT_URL)
     parser.add_argument("--stt-model", default=DEFAULT_STT_MODEL)
     parser.add_argument("--dump-dir", type=Path, default=None)
+    parser.add_argument("--board", type=Path, default=default_board_path())
     parser.add_argument(
         "--mock-text",
         default=None,
         help="Skip STT and always return this transcript (for layout tests)",
+    )
+    parser.add_argument(
+        "--no-hermes",
+        action="store_true",
+        help="Transcribe only; do not file through the hearth profile",
+    )
+    parser.add_argument(
+        "--mock-hermes",
+        action="store_true",
+        help="File with a tiny in-process heuristic instead of SSH",
     )
     args = parser.parse_args(argv)
 
@@ -224,14 +376,58 @@ def main(argv: list[str] | None = None) -> int:
         def transcribe_fn(wav: bytes) -> dict:
             return transcribe(wav, url=args.stt_url, model=args.stt_model)
 
+    board = Board(Path(args.board).expanduser())
+
+    def mock_file(text: str, source: str) -> str:
+        lowered = text.casefold()
+        ops: list[dict] = []
+        if "got " in lowered or "bought " in lowered or "done" in lowered:
+            target = text.strip()
+            for word in ("got ", "bought "):
+                if word in lowered:
+                    target = text[lowered.find(word) + len(word) :].strip(" .")
+                    break
+            ops.append({"op": "complete", "list": "buy", "text": target or text})
+        elif "pack" in lowered:
+            ops.append(
+                {
+                    "op": "add",
+                    "list": "pack",
+                    "text": text.strip(),
+                    "source": source,
+                }
+            )
+        elif text.strip():
+            ops.append({"op": "add", "list": "buy", "text": text.strip(), "source": source})
+        if not ops:
+            return "heard, nothing to file"
+        board.apply(ops, source=source)
+        return "filed."
+
+    file_fn: FileFn | None
+    if args.no_hermes:
+        file_fn = None
+    elif args.mock_hermes:
+        file_fn = mock_file
+    else:
+        file_fn = file_utterance
+
     state = HubState(
         transcribe_fn,
         dump_dir=args.dump_dir,
         stt_url=args.stt_url,
         stt_model=args.stt_model,
+        board=board,
+        file_fn=file_fn,
+        lat=_env_float("HEARTH_LAT"),
+        lon=_env_float("HEARTH_LON"),
     )
     httpd = make_server(args.host, args.port, state)
-    print(f"hearth hub on http://{args.host}:{args.port}  stt={args.stt_model}", flush=True)
+    print(
+        f"hearth hub on http://{args.host}:{args.port}  "
+        f"stt={args.stt_model}  board={board.path}",
+        flush=True,
+    )
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

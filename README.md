@@ -12,6 +12,7 @@ This repository is the firmware, hub, and tools. The product plan is
 - Step 0: factory flash dump and restore playbook. The 16 MiB as-found image is **not** in git. See [docs/FACTORY_FLASH.md](docs/FACTORY_FLASH.md).
 - Step 1: ESP-IDF bring-up (display, buttons, power-hold, Wi-Fi scan, sleep). See [docs/BRINGUP.md](docs/BRINGUP.md).
 - Step 2: hold-OK voice clip → hub STT → transcript on **Heard**. See [docs/VOICE.md](docs/VOICE.md).
+- Step 3: `hearth` profile files a hub board; **Today** / **Buy** posters. See [docs/BOARD.md](docs/BOARD.md).
 
 ## Hub
 
@@ -21,6 +22,7 @@ python3 -m hub --host 0.0.0.0 --port 8790
 
 Copy `.env.example` to `.env` if the local STT URL is not the default.
 The NOTE4 posts `http://<hub>:8790/v1/utterance`.
+Install the kitchen profile files with `./tools/install_hearth_profile.sh`.
 
 ## Hardware
 

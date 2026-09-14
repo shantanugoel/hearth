@@ -2,8 +2,9 @@
 
 Step 2 of [PLAN.md](PLAN.md): hold the front button, speak, see the words.
 
-The hub still does not file a board or draw posters. This image records a
-16 kHz clip, POSTs it to the hub, and paints the transcript on **Heard**.
+This is the Step 2 snapshot. Step 3 files a hub board and paints **Today** /
+**Buy**; see [BOARD.md](BOARD.md). This image records a 16 kHz clip, POSTs
+it to the hub, and painted the transcript on **Heard**.
 
 ## What it does
 

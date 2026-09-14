@@ -121,9 +121,9 @@ void Save1bpp(const char* path, const HearthCanvas& c, int scale) {
     WritePng(path, img.data(), w, h);
 }
 
-HearthState MakeHome() {
+HearthState MakeToday() {
     HearthState s;
-    s.screen = HearthScreen::kHome;
+    s.screen = HearthScreen::kToday;
     s.battery_valid = true;
     s.battery_mv = 3912;
     s.battery_percent = 76;
@@ -136,21 +136,32 @@ HearthState MakeHome() {
     std::snprintf(s.hub, sizeof(s.hub), "http://192.168.2.89:8790");
     std::snprintf(s.transcript, sizeof(s.transcript),
                   "we are out of oat milk");
-    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.2.0-voice");
+    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.3.0-board");
+    std::snprintf(s.date, sizeof(s.date), "Mon 14 Sep");
+    std::snprintf(s.weather, sizeof(s.weather), "29C  fair  24-32");
+    std::snprintf(s.meal, sizeof(s.meal), "dal rice");
+    std::snprintf(s.ack, sizeof(s.ack), "Added oat milk to Buy.");
+    std::snprintf(s.n_buy, sizeof(s.n_buy), "1");
+    std::snprintf(s.n_do, sizeof(s.n_do), "0");
+    std::snprintf(s.n_pack, sizeof(s.n_pack), "1");
+    std::snprintf(s.today[0], sizeof(s.today[0]), "dal rice");
+    std::snprintf(s.today[1], sizeof(s.today[1]), "swim kit  Maya  Thursday");
+    std::snprintf(s.today[2], sizeof(s.today[2]), "oat milk");
+    std::snprintf(s.buy[0], sizeof(s.buy[0]), "oat milk");
     return s;
 }
 
-HearthState MakeHeard() {
-    HearthState s = MakeHome();
-    s.screen = HearthScreen::kHeard;
-    s.last_clip_ms = 2100;
-    std::snprintf(s.transcript, sizeof(s.transcript),
-                  "we are out of oat milk and pack Maya's swim kit for Thursday");
+HearthState MakeBuy() {
+    HearthState s = MakeToday();
+    s.screen = HearthScreen::kBuy;
+    s.ack[0] = '\0';
+    std::snprintf(s.buy[0], sizeof(s.buy[0]), "oat milk");
+    std::snprintf(s.buy[1], sizeof(s.buy[1]), "eggs");
     return s;
 }
 
 HearthState MakeRadio() {
-    HearthState s = MakeHome();
+    HearthState s = MakeToday();
     s.screen = HearthScreen::kRadio;
     s.ap_count = 5;
     std::snprintf(s.aps[0].ssid, sizeof(s.aps[0].ssid), "orbital-5");
@@ -167,7 +178,7 @@ HearthState MakeRadio() {
 }
 
 HearthState MakePower() {
-    HearthState s = MakeHome();
+    HearthState s = MakeToday();
     s.screen = HearthScreen::kPower;
     s.charging = true;
     s.charge_complete = false;
@@ -175,7 +186,7 @@ HearthState MakePower() {
 }
 
 HearthState MakeListen() {
-    HearthState s = MakeHome();
+    HearthState s = MakeToday();
     s.voice = HearthVoice::kListening;
     std::snprintf(s.voice_status, sizeof(s.voice_status), "release to send");
     return s;
@@ -195,8 +206,8 @@ int main(int argc, char** argv) {
         std::printf("  %s\n", path.c_str());
     };
 
-    shot("01-home", MakeHome());
-    shot("02-heard", MakeHeard());
+    shot("01-today", MakeToday());
+    shot("02-buy", MakeBuy());
     shot("03-radio", MakeRadio());
     shot("04-power", MakePower());
     shot("05-listen", MakeListen());

@@ -6,9 +6,10 @@ power-hold, Wi-Fi scan, and sleep.
 
 ## What it does
 
-After flash, the panel shows **Home**: large `HEARTH`, battery, and radio
+After flash, the panel showed **Home**: large `HEARTH`, battery, and radio
 status. Four screens wrap with UP / DOWN. Step 2 replaced Buttons with
-**Heard** and added hold-OK speak; see [VOICE.md](VOICE.md).
+**Heard**; Step 3 replaced Home/Heard with **Today** / **Buy**. See
+[VOICE.md](VOICE.md) and [BOARD.md](BOARD.md).
 
 Historical Step 1 frames:
 

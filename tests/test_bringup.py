@@ -33,8 +33,8 @@ class SimulatorTests(unittest.TestCase):
     def test_sim_writes_four_pngs(self) -> None:
         subprocess.check_call(["make", "-C", str(SIM), "run"])
         for name in (
-            "01-home.png",
-            "02-heard.png",
+            "01-today.png",
+            "02-buy.png",
             "03-radio.png",
             "04-power.png",
             "05-listen.png",

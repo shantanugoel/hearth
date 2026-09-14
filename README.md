@@ -1,0 +1,35 @@
+# Hearth
+
+Household working memory on a ZECTRIX NOTE4. Speak at the fridge; a dedicated
+Hermes profile files what you said onto a kitchen poster. The e-paper holds
+what the family needs to see without unlocking a phone.
+
+This repository is the firmware, hub, and tools. The product plan is
+[docs/PLAN.md](docs/PLAN.md).
+
+## Status
+
+Step 0: factory flash dump and restore playbook. The 16 MiB as-found image is
+**not** in git. See [docs/FACTORY_FLASH.md](docs/FACTORY_FLASH.md).
+
+## Hardware
+
+Monochrome NOTE4 Developer Kit, PCB V1.0, ESP32-S3 N16R8. Do not flash NOTE4C
+images. Device identity for this unit: [docs/hardware/DEVICE.md](docs/hardware/DEVICE.md).
+
+## Factory dump
+
+```bash
+python3 tools/note4_flash.py info
+python3 tools/note4_flash.py dump
+python3 tools/note4_flash.py verify
+python3 tools/note4_flash.py restore --dry-run
+```
+
+Restore-write is destructive and requires
+`--i-know-this-overwrites-the-device`. Do not run it unless you intend to put
+the factory image back.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

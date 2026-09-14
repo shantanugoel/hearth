@@ -1,0 +1,35 @@
+# Local factory / as-found flash dumps. Never commit device images.
+backups/*.bin
+backups/*.img
+backups/*.sha256
+!backups/.gitkeep
+
+# ESP-IDF
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/managed_components/
+firmware/dependencies.lock
+
+# Hub / Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+hub/.venv/
+
+# Simulator output
+sim/out/
+*.pyc
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+
+# OS
+.DS_Store
+*~

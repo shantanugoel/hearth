@@ -1,25 +1,23 @@
 #include "hearth_model.h"
 
 #include <cstdio>
+#include <cstring>
 
 #include "hearth_canvas.h"
 
 namespace {
 
 constexpr int kMargin = 18;
+constexpr int kBodyWidth = HearthCanvas::kWidth - 2 * kMargin;
 
 void Footer(HearthCanvas& canvas, const HearthState& state) {
     canvas.HLine(kMargin, 268, HearthCanvas::kWidth - 2 * kMargin);
-    char names[80];
-    std::snprintf(names, sizeof(names), "Home  Buttons  Radio  Power");
-    canvas.TextCentered(274, names, 1);
-    // Underline the current screen name roughly by drawing a short bar
-    // under the matching word. Positions measured for TRMNL16 at scale 1.
-    const char* all = "Home  Buttons  Radio  Power";
+    const char* all = "Home  Heard  Radio  Power";
+    canvas.TextCentered(274, all, 1);
     const int total = canvas.TextWidth(all, 1);
     const int start = (HearthCanvas::kWidth - total) / 2;
     int x = start;
-    const char* words[] = {"Home", "Buttons", "Radio", "Power"};
+    const char* words[] = {"Home", "Heard", "Radio", "Power"};
     const int index = static_cast<int>(state.screen);
     for (int i = 0; i < 4; ++i) {
         const int w = canvas.TextWidth(words[i], 1);
@@ -30,12 +28,97 @@ void Footer(HearthCanvas& canvas, const HearthState& state) {
     }
 }
 
-void DrawHome(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Text(kMargin, 22, "HEARTH", 4);
-    canvas.HLine(kMargin, 92, 220);
-    canvas.Text(kMargin, 108, "household working memory", 1);
-    canvas.Text(kMargin, 132, "bring-up  -  step 1", 1);
+void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text,
+                 int scale, int line_height, int max_lines) {
+    if (text == nullptr || text[0] == '\0' || max_lines <= 0) {
+        return;
+    }
+    char line[96];
+    int used = 0;
+    int px = 0;
+    int row = 0;
+    auto flush = [&]() {
+        line[used] = '\0';
+        canvas.Text(x, y + row * line_height, line, scale);
+        used = 0;
+        px = 0;
+        row++;
+    };
+    const char* cursor = text;
+    while (*cursor != '\0' && row < max_lines) {
+        while (*cursor == ' ') {
+            cursor++;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+        const char* start = cursor;
+        while (*cursor != '\0' && *cursor != ' ') {
+            cursor++;
+        }
+        const int wlen = static_cast<int>(cursor - start);
+        char word[96];
+        const int copy = wlen < 95 ? wlen : 95;
+        std::memcpy(word, start, static_cast<size_t>(copy));
+        word[copy] = '\0';
+        const int word_px = canvas.TextWidth(word, scale);
+        const int space_px = used ? canvas.TextWidth(" ", scale) : 0;
+        if (used > 0 && px + space_px + word_px > width) {
+            flush();
+            if (row >= max_lines) {
+                break;
+            }
+        }
+        if (word_px > width && used == 0) {
+            // Hard-wrap a single overlong token.
+            for (int i = 0; i < copy && row < max_lines; ++i) {
+                char ch[2] = {word[i], '\0'};
+                const int ch_px = canvas.TextWidth(ch, scale);
+                if (used > 0 && px + ch_px > width) {
+                    flush();
+                    if (row >= max_lines) {
+                        break;
+                    }
+                }
+                if (used < 95) {
+                    line[used++] = word[i];
+                    px += ch_px;
+                }
+            }
+            continue;
+        }
+        if (used && used < 95) {
+            line[used++] = ' ';
+            px += space_px;
+        }
+        if (used + copy < 95) {
+            std::memcpy(line + used, word, static_cast<size_t>(copy));
+            used += copy;
+            px += word_px;
+        }
+    }
+    if (used > 0 && row < max_lines) {
+        flush();
+    }
+}
 
+void DrawHome(HearthCanvas& canvas, const HearthState& state) {
+    canvas.Text(kMargin, 18, "HEARTH", 4);
+    canvas.HLine(kMargin, 88, 220);
+    canvas.Text(kMargin, 100, "household working memory", 1);
+    canvas.Text(kMargin, 122, "hold OK to speak", 1);
+    canvas.Text(kMargin, 148, state.wifi_status, 1);
+    if (state.ip[0] != '\0') {
+        canvas.Text(kMargin, 170, state.ip, 1);
+    } else {
+        canvas.Text(kMargin, 170, "no ip yet", 1);
+    }
+    if (state.transcript[0] != '\0') {
+        DrawWrapped(canvas, kMargin, 196, kBodyWidth, state.transcript, 1, 18,
+                    3);
+    } else {
+        canvas.Text(kMargin, 196, "nothing heard yet", 1);
+    }
     char line[64];
     if (state.battery_valid) {
         std::snprintf(line, sizeof(line), "battery  %u%%   %u mV",
@@ -43,47 +126,50 @@ void DrawHome(HearthCanvas& canvas, const HearthState& state) {
     } else {
         std::snprintf(line, sizeof(line), "battery  unknown");
     }
-    canvas.Text(kMargin, 176, line, 1);
-
-    canvas.Text(kMargin, 198, state.wifi_status, 1);
-    canvas.Text(kMargin, 230, "UP/DOWN  screens     hold DOWN  sleep", 1);
-    if (state.note[0] != '\0') {
-        canvas.Text(kMargin, 248, state.note, 1);
-    }
+    canvas.Text(kMargin, 248, line, 1);
 }
 
-void DrawButtons(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Text(kMargin, 18, "Buttons", 2);
-    canvas.HLine(kMargin, 56, 140);
-    canvas.Text(kMargin, 72, "last event", 1);
-    canvas.Text(kMargin, 94, state.last_event, 2);
-
-    char line[64];
-    std::snprintf(line, sizeof(line), "UP clicks     %u", state.up_clicks);
-    canvas.Text(kMargin, 148, line, 1);
-    std::snprintf(line, sizeof(line), "DOWN clicks   %u", state.down_clicks);
-    canvas.Text(kMargin, 172, line, 1);
-    std::snprintf(line, sizeof(line), "OK clicks     %u", state.ok_clicks);
-    canvas.Text(kMargin, 196, line, 1);
-    canvas.Text(kMargin, 230, "OK click counts. Hold DOWN 3s sleeps.", 1);
+void DrawHeard(HearthCanvas& canvas, const HearthState& state) {
+    canvas.Text(kMargin, 18, "Heard", 2);
+    canvas.HLine(kMargin, 56, 110);
+    if (state.transcript[0] == '\0') {
+        canvas.Text(kMargin, 80, "nothing yet.", 1);
+        canvas.Text(kMargin, 104, "hold OK and speak.", 1);
+    } else {
+        DrawWrapped(canvas, kMargin, 72, kBodyWidth, state.transcript, 1, 20,
+                    7);
+    }
+    char line[80];
+    if (state.last_clip_ms > 0) {
+        std::snprintf(line, sizeof(line), "clip  %u ms",
+                      static_cast<unsigned>(state.last_clip_ms));
+        canvas.Text(kMargin, 224, line, 1);
+    }
+    if (state.hub[0] != '\0') {
+        canvas.Text(kMargin, 246, state.hub, 1);
+    }
 }
 
 void DrawRadio(HearthCanvas& canvas, const HearthState& state) {
     canvas.Text(kMargin, 18, "Radio", 2);
     canvas.HLine(kMargin, 56, 110);
-    canvas.Text(kMargin, 72, state.wifi_status, 1);
+    canvas.Text(kMargin, 68, state.wifi_status, 1);
+    if (state.ip[0] != '\0') {
+        canvas.Text(kMargin, 88, state.ip, 1);
+    }
     if (state.ap_count <= 0) {
         canvas.Text(kMargin, 120, "no access points yet", 1);
-        canvas.Text(kMargin, 144, "OK rescan", 1);
+        canvas.Text(kMargin, 144, "short OK rescan", 1);
         return;
     }
+    const int top = state.ip[0] ? 112 : 96;
     for (int i = 0; i < state.ap_count; ++i) {
         char line[72];
-        std::snprintf(line, sizeof(line), "%-24s  %4d dBm",
-                      state.aps[i].ssid, state.aps[i].rssi);
-        canvas.Text(kMargin, 100 + i * 22, line, 1);
+        std::snprintf(line, sizeof(line), "%-22s  %4d dBm", state.aps[i].ssid,
+                      state.aps[i].rssi);
+        canvas.Text(kMargin, top + i * 20, line, 1);
     }
-    canvas.Text(kMargin, 244, "OK rescan", 1);
+    canvas.Text(kMargin, 248, "short OK rescan", 1);
 }
 
 void DrawPower(HearthCanvas& canvas, const HearthState& state) {
@@ -112,6 +198,23 @@ void DrawPower(HearthCanvas& canvas, const HearthState& state) {
     canvas.Text(kMargin, 228, "Hold DOWN 3s to clear the panel and sleep.", 1);
 }
 
+void DrawVoiceOverlay(HearthCanvas& canvas, const HearthState& state) {
+    if (state.voice == HearthVoice::kIdle) {
+        return;
+    }
+    canvas.FillRect(36, 86, 328, 108, true);
+    const char* title = "listening";
+    if (state.voice == HearthVoice::kUploading) {
+        title = "sending";
+    } else if (state.voice == HearthVoice::kError) {
+        title = "hub error";
+    }
+    canvas.TextCentered(108, title, 2, true);
+    if (state.voice_status[0] != '\0') {
+        canvas.TextCentered(156, state.voice_status, 1, true);
+    }
+}
+
 }  // namespace
 
 void HearthDraw(HearthCanvas& canvas, const HearthState& state) {
@@ -120,8 +223,8 @@ void HearthDraw(HearthCanvas& canvas, const HearthState& state) {
         case HearthScreen::kHome:
             DrawHome(canvas, state);
             break;
-        case HearthScreen::kButtons:
-            DrawButtons(canvas, state);
+        case HearthScreen::kHeard:
+            DrawHeard(canvas, state);
             break;
         case HearthScreen::kRadio:
             DrawRadio(canvas, state);
@@ -133,4 +236,5 @@ void HearthDraw(HearthCanvas& canvas, const HearthState& state) {
             break;
     }
     Footer(canvas, state);
+    DrawVoiceOverlay(canvas, state);
 }

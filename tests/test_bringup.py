@@ -32,7 +32,13 @@ class ModelTests(unittest.TestCase):
 class SimulatorTests(unittest.TestCase):
     def test_sim_writes_four_pngs(self) -> None:
         subprocess.check_call(["make", "-C", str(SIM), "run"])
-        for name in ("01-home.png", "02-buttons.png", "03-radio.png", "04-power.png"):
+        for name in (
+            "01-home.png",
+            "02-heard.png",
+            "03-radio.png",
+            "04-power.png",
+            "05-listen.png",
+        ):
             path = SIM / "out" / name
             self.assertTrue(path.exists(), path)
             self.assertGreater(path.stat().st_size, 800)

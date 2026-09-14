@@ -128,26 +128,30 @@ HearthState MakeHome() {
     s.battery_mv = 3912;
     s.battery_percent = 76;
     s.charging = true;
-    std::snprintf(s.wifi_status, sizeof(s.wifi_status), "12 APs");
-    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.1.0-bringup");
+    s.wifi_connected = true;
+    s.rssi = -48;
+    std::snprintf(s.ssid, sizeof(s.ssid), "orbital-5-iot");
+    std::snprintf(s.ip, sizeof(s.ip), "192.168.2.40");
+    std::snprintf(s.wifi_status, sizeof(s.wifi_status), "orbital-5-iot  -48 dBm");
+    std::snprintf(s.hub, sizeof(s.hub), "http://192.168.2.89:8790");
+    std::snprintf(s.transcript, sizeof(s.transcript),
+                  "we are out of oat milk");
+    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.2.0-voice");
     return s;
 }
 
-HearthState MakeButtons() {
+HearthState MakeHeard() {
     HearthState s = MakeHome();
-    s.screen = HearthScreen::kButtons;
-    std::snprintf(s.last_event, sizeof(s.last_event), "OK click");
-    s.up_clicks = 3;
-    s.down_clicks = 1;
-    s.ok_clicks = 4;
+    s.screen = HearthScreen::kHeard;
+    s.last_clip_ms = 2100;
+    std::snprintf(s.transcript, sizeof(s.transcript),
+                  "we are out of oat milk and pack Maya's swim kit for Thursday");
     return s;
 }
 
 HearthState MakeRadio() {
     HearthState s = MakeHome();
     s.screen = HearthScreen::kRadio;
-    s.wifi_ready = true;
-    std::snprintf(s.wifi_status, sizeof(s.wifi_status), "12 APs");
     s.ap_count = 5;
     std::snprintf(s.aps[0].ssid, sizeof(s.aps[0].ssid), "orbital-5");
     s.aps[0].rssi = -48;
@@ -170,6 +174,13 @@ HearthState MakePower() {
     return s;
 }
 
+HearthState MakeListen() {
+    HearthState s = MakeHome();
+    s.voice = HearthVoice::kListening;
+    std::snprintf(s.voice_status, sizeof(s.voice_status), "release to send");
+    return s;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -185,8 +196,9 @@ int main(int argc, char** argv) {
     };
 
     shot("01-home", MakeHome());
-    shot("02-buttons", MakeButtons());
+    shot("02-heard", MakeHeard());
     shot("03-radio", MakeRadio());
     shot("04-power", MakePower());
+    shot("05-listen", MakeListen());
     return 0;
 }

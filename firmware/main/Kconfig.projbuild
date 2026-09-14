@@ -1,0 +1,19 @@
+menu "Hearth"
+
+config HEARTH_WIFI_SSID
+    string "Default Wi-Fi SSID"
+    default ""
+    help
+      First-boot default. NVS overrides this. Set it at runtime with
+      "hearth-set ssid <name>" over the USB serial console, or put it in
+      firmware/sdkconfig.defaults.local (gitignored).
+
+config HEARTH_WIFI_PASSWORD
+    string "Default Wi-Fi password"
+    default ""
+
+config HEARTH_HUB_URL
+    string "Default hub base URL"
+    default "http://192.168.2.89:8790"
+
+endmenu

@@ -1,35 +1,44 @@
-/* Hearth bring-up firmware: display, buttons, power-hold, Wi-Fi scan, sleep.
+/* Hearth voice firmware: STA Wi-Fi, hold-OK to record, POST to hub, Heard.
  *
- * The hub will own layout later. This image only proves the NOTE4 board
- * support is alive: a poster on the panel, three buttons, a radio scan, and
- * the vendor shutdown gesture.
+ * Layout still lives on-device for this step. The hub only transcribes.
+ * Later steps replace these posters with hub-rendered bitmaps.
  */
 
 #include <cstdio>
 #include <cstring>
 
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "hearth_audio.h"
 #include "hearth_canvas.h"
+#include "hearth_config.h"
 #include "hearth_model.h"
+#include "hearth_net.h"
+#include "hearth_util.h"
 #include "hearth_wifi.h"
 #include "nvs_flash.h"
 #include "zectrix_board.h"
+#include "zectrix_board_config.h"
 #include "zectrix_epd.h"
 
 namespace {
 
 constexpr const char* kTag = "hearth";
-constexpr const char* kFirmwareVersion = "v0.1.0-bringup";
-constexpr TickType_t kIdleTick = pdMS_TO_TICKS(5000);
+constexpr const char* kFirmwareVersion = "v0.2.0-voice";
+constexpr TickType_t kPollTick = pdMS_TO_TICKS(50);
+constexpr uint32_t kMaxClipMs = 12000;
+constexpr uint32_t kHoldGateMs = 220;
 
 HearthCanvas g_canvas;
 HearthState g_state;
+HearthConfig g_config;
 ZectrixBoard g_board;
 zectrix_epd_handle_t g_epd = nullptr;
+
+bool OkHeld() { return gpio_get_level(ZECTRIX_BUTTON_OK) == 0; }
 
 void RefreshPower() {
     const ZectrixPowerSnapshot power = g_board.ReadPowerSnapshot();
@@ -40,23 +49,9 @@ void RefreshPower() {
     g_state.charge_complete = power.charge.full;
 }
 
-void RecordEvent(const ZectrixButtonEvent& event) {
-    const char* name = event.button == ZectrixButton::kUp     ? "UP"
-                       : event.button == ZectrixButton::kDown ? "DOWN"
-                                                              : "OK";
-    const char* action =
-        event.action == ZectrixButtonAction::kLongPress ? "hold" : "click";
-    std::snprintf(g_state.last_event, sizeof(g_state.last_event), "%s %s",
-                  name, action);
-    if (event.action == ZectrixButtonAction::kClick) {
-        if (event.button == ZectrixButton::kUp) {
-            g_state.up_clicks++;
-        } else if (event.button == ZectrixButton::kDown) {
-            g_state.down_clicks++;
-        } else {
-            g_state.ok_clicks++;
-        }
-    }
+void RefreshRadio() {
+    HearthWifiFill(&g_state);
+    HearthCopy(g_state.hub, sizeof(g_state.hub), g_config.hub);
 }
 
 esp_err_t Paint(bool full) {
@@ -79,6 +74,17 @@ esp_err_t Paint(bool full) {
                                             g_canvas.size());
 }
 
+void ShowVoice(HearthVoice voice, const char* status, bool full) {
+    g_state.voice = voice;
+    HearthCopy(g_state.voice_status, sizeof(g_state.voice_status), status);
+    RefreshPower();
+    RefreshRadio();
+    const esp_err_t err = Paint(full);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "paint failed: %s", esp_err_to_name(err));
+    }
+}
+
 [[noreturn]] void Shutdown() {
     ESP_LOGI(kTag, "shutdown");
     g_canvas.Clear(true);
@@ -95,7 +101,6 @@ esp_err_t Paint(bool full) {
     vTaskDelay(pdMS_TO_TICKS(120));
     g_board.CutBatteryPower();
     vTaskDelay(pdMS_TO_TICKS(200));
-    // On USB the latch does nothing; deep sleep keeps the cleared panel.
     esp_deep_sleep_start();
 }
 
@@ -109,46 +114,131 @@ void InitNvs() {
     ESP_ERROR_CHECK(err);
 }
 
+void SpeakTurn() {
+    g_board.DrainButtons();
+    if (!HearthWifiConnected()) {
+        ShowVoice(HearthVoice::kError, "no wifi", false);
+        return;
+    }
+    if (g_config.hub[0] == '\0') {
+        ShowVoice(HearthVoice::kError, "no hub url", false);
+        return;
+    }
+
+    g_board.SetPowerLed(true);
+    ShowVoice(HearthVoice::kListening, "release to send", false);
+
+    HearthClip clip;
+    const esp_err_t rec = HearthRecordWhile(&g_board, &OkHeld, kMaxClipMs, &clip);
+    g_board.DrainButtons();
+    if (rec != ESP_OK) {
+        g_board.SetPowerLed(false);
+        if (rec == ESP_ERR_INVALID_SIZE) {
+            ShowVoice(HearthVoice::kError, "hold longer", false);
+        } else {
+            ShowVoice(HearthVoice::kError, "mic failed", false);
+        }
+        return;
+    }
+
+    ShowVoice(HearthVoice::kUploading, "sending to hub", false);
+    char text[sizeof(g_state.transcript)];
+    uint32_t stt_ms = 0;
+    const esp_err_t posted = HearthPostUtterance(
+        g_config.hub, clip.wav, clip.bytes, text, sizeof(text), &stt_ms);
+    g_state.last_clip_ms = clip.ms;
+    HearthClipFree(&clip);
+    g_board.SetPowerLed(false);
+    g_board.DrainButtons();
+
+    if (posted != ESP_OK) {
+        ShowVoice(HearthVoice::kError, "hub unreachable", false);
+        return;
+    }
+    HearthCopy(g_state.transcript, sizeof(g_state.transcript), text);
+    g_state.screen = HearthScreen::kHeard;
+    std::snprintf(g_state.voice_status, sizeof(g_state.voice_status),
+                  "stt %u ms", static_cast<unsigned>(stt_ms));
+    g_state.voice = HearthVoice::kIdle;
+    RefreshPower();
+    RefreshRadio();
+    ESP_LOGI(kTag, "heard: %s", g_state.transcript);
+    (void)Paint(true);
+}
+
+void HandleOkClick() {
+    if (g_state.screen == HearthScreen::kRadio) {
+        (void)HearthWifiScan(&g_state);
+    }
+    RefreshPower();
+    RefreshRadio();
+    (void)Paint(false);
+}
+
 }  // namespace
 
 extern "C" void app_main(void) {
     ESP_LOGI(kTag, "Hearth %s", kFirmwareVersion);
     InitNvs();
+    ESP_ERROR_CHECK(HearthConfigLoad(&g_config));
+    HearthConfigRegisterConsole(&g_config);
 
     ESP_ERROR_CHECK(g_board.Init());
     g_board.SetPowerLed(true);
 
-    zectrix_epd_config_t config = {};
-    zectrix_epd_get_default_config(&config);
-    ESP_ERROR_CHECK(zectrix_epd_new(&config, &g_epd));
+    zectrix_epd_config_t epd_cfg = {};
+    zectrix_epd_get_default_config(&epd_cfg);
+    ESP_ERROR_CHECK(zectrix_epd_new(&epd_cfg, &g_epd));
 
     RefreshPower();
-    std::snprintf(g_state.wifi_status, sizeof(g_state.wifi_status),
-                  "radio starting");
+    RefreshRadio();
     std::snprintf(g_state.note, sizeof(g_state.note), "HEARTH %s",
                   kFirmwareVersion);
+    std::snprintf(g_state.wifi_status, sizeof(g_state.wifi_status),
+                  "radio starting");
     ESP_ERROR_CHECK(Paint(true));
     ESP_LOGI(kTag, "splash painted");
     g_board.SetPowerLed(false);
 
-    if (HearthWifiStart() != ESP_OK) {
+    const esp_err_t wifi = HearthWifiStart(g_config);
+    if (wifi != ESP_OK && wifi != ESP_ERR_TIMEOUT) {
         std::snprintf(g_state.wifi_status, sizeof(g_state.wifi_status),
                       "wifi init failed");
     } else {
+        RefreshRadio();
         (void)HearthWifiScan(&g_state);
+        RefreshRadio();
     }
     RefreshPower();
     ESP_ERROR_CHECK(Paint(true));
-    ESP_LOGI(kTag, "wifi scan painted: %s", g_state.wifi_status);
+    ESP_LOGI(kTag, "wifi painted: %s", g_state.wifi_status);
 
     for (;;) {
-        ZectrixButtonEvent event;
-        const bool had_input = g_board.WaitButton(&event, kIdleTick);
-        bool full = false;
-        bool repaint = false;
+        if (OkHeld()) {
+            vTaskDelay(pdMS_TO_TICKS(kHoldGateMs));
+            if (OkHeld()) {
+                SpeakTurn();
+            } else {
+                g_board.DrainButtons();
+                HandleOkClick();
+            }
+            continue;
+        }
 
+        ZectrixButtonEvent event;
+        const bool had_input = g_board.WaitButton(&event, kPollTick);
         if (!had_input) {
             RefreshPower();
+            RefreshRadio();
+            continue;
+        }
+
+        if (event.button == ZectrixButton::kOk) {
+            if (OkHeld()) {
+                SpeakTurn();
+            } else if (event.action == ZectrixButtonAction::kClick) {
+                HandleOkClick();
+            }
             continue;
         }
 
@@ -157,40 +247,20 @@ extern "C" void app_main(void) {
             Shutdown();
         }
 
-        RecordEvent(event);
-
         if (event.action == ZectrixButtonAction::kClick &&
             event.button == ZectrixButton::kUp) {
             g_state.screen = HearthScreenPrev(g_state.screen);
-            full = true;
-            repaint = true;
+            g_state.voice = HearthVoice::kIdle;
+            RefreshPower();
+            RefreshRadio();
+            (void)Paint(true);
         } else if (event.action == ZectrixButtonAction::kClick &&
                    event.button == ZectrixButton::kDown) {
             g_state.screen = HearthScreenNext(g_state.screen);
-            full = true;
-            repaint = true;
-        } else if (event.action == ZectrixButtonAction::kClick &&
-                   event.button == ZectrixButton::kOk) {
-            if (g_state.screen == HearthScreen::kRadio) {
-                (void)HearthWifiScan(&g_state);
-            }
+            g_state.voice = HearthVoice::kIdle;
             RefreshPower();
-            repaint = true;
-        } else if (event.action == ZectrixButtonAction::kLongPress &&
-                   event.button == ZectrixButton::kOk) {
-            g_state.screen = HearthScreen::kHome;
-            full = true;
-            repaint = true;
-        } else {
-            repaint = true;
-        }
-
-        if (repaint) {
-            RefreshPower();
-            const esp_err_t err = Paint(full);
-            if (err != ESP_OK) {
-                ESP_LOGW(kTag, "paint failed: %s", esp_err_to_name(err));
-            }
+            RefreshRadio();
+            (void)Paint(true);
         }
     }
 }

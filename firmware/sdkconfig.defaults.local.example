@@ -1,0 +1,6 @@
+# Copy to sdkconfig.defaults.local (gitignored) and fill in the LAN secrets.
+# Applied only when firmware/sdkconfig is generated from scratch.
+
+CONFIG_HEARTH_WIFI_SSID=""
+CONFIG_HEARTH_WIFI_PASSWORD=""
+CONFIG_HEARTH_HUB_URL="http://192.168.2.89:8790"

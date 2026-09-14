@@ -16,7 +16,19 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_FREERTOS_HZ=1000
 
 # The NOTE4 exposes only USB-Serial/JTAG. Make USB the primary console so
-# logs and a future provisioning REPL work over /dev/ttyACM0.
+# logs and the provisioning REPL work over /dev/ttyACM0.
 CONFIG_ESP_CONSOLE_UART_DEFAULT=n
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# Hold-to-speak POST can block for local STT (up to 90 s).
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=120
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_LWIP_SO_RCVBUF=y
+
+# Hub is HTTP on the LAN. Skip TLS to keep the image small.
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=n
+
+# Hub URL is public on this LAN; SSID/password stay in sdkconfig.defaults.local.
+CONFIG_HEARTH_HUB_URL="http://192.168.2.89:8790"

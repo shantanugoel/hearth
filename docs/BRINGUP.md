@@ -7,23 +7,14 @@ power-hold, Wi-Fi scan, and sleep.
 ## What it does
 
 After flash, the panel shows **Home**: large `HEARTH`, battery, and radio
-status. Four screens wrap with UP / DOWN:
+status. Four screens wrap with UP / DOWN. Step 2 replaced Buttons with
+**Heard** and added hold-OK speak; see [VOICE.md](VOICE.md).
 
-| Screen | Job |
-|---|---|
-| Home | Identity, battery, last scan count |
-| Buttons | Last event and click counts |
-| Radio | 2.4 GHz AP scan, OK to rescan |
-| Power | Millivolts, charger, shutdown hint |
+Historical Step 1 frames:
 
-- **UP / DOWN click:** previous / next screen (full refresh).
-- **OK click:** rescan on Radio; otherwise refresh power/counts (partial).
-- **OK hold (1.5 s):** jump Home.
-- **DOWN hold (3 s):** white full refresh, drop the battery latch, deep sleep.
-  On USB the latch has no effect; the panel stays cleared in deep sleep.
-
-There is no Wi-Fi STA connection and no hub yet. Scan-only is enough to prove
-the radio. Provisioning comes with the hub.
+![Home](img/01-home.png)
+![Radio](img/03-radio.png)
+![Power](img/04-power.png)
 
 ## Build and flash
 
@@ -52,12 +43,8 @@ The host simulator compiles the same canvas and screen files and writes PNGs:
 make -C sim run
 ```
 
-Frames land in `sim/out/01-home.png` … `04-power.png`, 2× the 400 × 300 panel.
-
-![Home](img/01-home.png)
-![Buttons](img/02-buttons.png)
-![Radio](img/03-radio.png)
-![Power](img/04-power.png)
+Frames land in `sim/out/` at 2× the 400 × 300 panel. Step 2 screenshots live
+in [VOICE.md](VOICE.md).
 
 ## Serial
 
@@ -67,5 +54,4 @@ USB-Serial/JTAG is the console at 115200. Look for:
 hearth: Hearth v0.1.0-bringup
 hearth: splash painted
 hearth_wifi: scan found N AP(s)
-hearth: wifi scan painted
 ```

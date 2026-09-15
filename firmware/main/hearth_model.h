@@ -18,6 +18,7 @@ enum class HearthVoice : uint8_t {
     kIdle = 0,
     kListening,
     kUploading,
+    kFiling,
     kError,
 };
 
@@ -100,6 +101,12 @@ inline HearthScreen HearthScreenPrev(HearthScreen screen) {
 inline bool HearthPending(const HearthState& state) {
     return state.pending[0] == '1' || state.pending[0] == 't' ||
            state.pending[0] == 'T';
+}
+
+inline bool HearthBusy(const HearthState& state) {
+    return state.voice == HearthVoice::kListening ||
+           state.voice == HearthVoice::kUploading ||
+           state.voice == HearthVoice::kFiling;
 }
 
 inline void HearthApplyPoster(HearthState* state, const char* json) {

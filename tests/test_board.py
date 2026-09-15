@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from hub.board import Board, parse_hhmm, poster_from_board, weather_kind, weather_line  # noqa: E402
+from hub.commands import try_fast_command  # noqa: E402
 from hub.hermes import HermesError  # noqa: E402
 from hub.server import HubState, make_server  # noqa: E402
 from hub.wavutil import wrap_pcm16  # noqa: E402
@@ -83,6 +84,49 @@ class BoardTests(unittest.TestCase):
         self.assertIsNotNone(gone)
         self.assertEqual(self.board.counts()["notes"], 0)
 
+    def test_fast_remove_never_adds_item(self) -> None:
+        self.board.add("buy", "oat milk")
+        ack = try_fast_command(self.board, "remove oat milk")
+        self.assertEqual(ack, "Removed oat milk.")
+        self.assertEqual(self.board.counts()["buy"], 0)
+        ack = try_fast_command(self.board, "delete oat milk")
+        self.assertEqual(ack, "Oat milk isn't on the board.")
+        self.assertEqual(self.board.counts()["buy"], 0)
+
+    def test_fast_take_off_and_complete(self) -> None:
+        self.board.add("buy", "free-range eggs")
+        self.assertEqual(
+            try_fast_command(self.board, "take eggs off the shopping list"),
+            "Removed free-range eggs.",
+        )
+        self.board.add("buy", "oat milk")
+        self.assertEqual(try_fast_command(self.board, "we got milk"), "Done: oat milk.")
+        self.assertEqual(self.board.counts()["buy"], 0)
+
+    def test_fast_add_menu_and_alarm(self) -> None:
+        self.assertEqual(
+            try_fast_command(self.board, "we are out of oat milk"),
+            "Added oat milk to Buy.",
+        )
+        self.assertEqual(
+            try_fast_command(self.board, "we are out of oat milk"),
+            "Oat milk is already on Buy.",
+        )
+        self.assertEqual(try_fast_command(self.board, "dinner is dal rice"), "Tonight: dal rice.")
+        self.assertIn("dal rice", self.board.tonight_meal())
+        self.assertEqual(
+            try_fast_command(self.board, "set an alarm for 7am for school"),
+            "Alarm at 07:00 for school.",
+        )
+        self.assertEqual(try_fast_command(self.board, "cancel the alarm"), "Alarm cleared.")
+        self.board.set_alarm("8pm", "oven")
+        self.assertEqual(try_fast_command(self.board, "remove the alarm"), "Alarm cleared.")
+
+    def test_mixed_command_falls_through(self) -> None:
+        self.assertIsNone(
+            try_fast_command(self.board, "remove oat milk and pack Maya's bag")
+        )
+
     def test_alarm(self) -> None:
         self.assertEqual(parse_hhmm("7am"), "07:00")
         self.board.set_alarm("7:30", "school")
@@ -122,6 +166,12 @@ class BoardTests(unittest.TestCase):
     def test_weather_line(self) -> None:
         self.assertEqual(weather_line(0, 29.4, 32, 24), "29C  clear  24-32")
         self.assertEqual(weather_kind(code=61), "rain")
+
+    def test_ack_expires_from_poster(self) -> None:
+        self.board.set_meta(ack="Removed oat milk.")
+        self.assertEqual(poster_from_board(self.board)["ack"], "Removed oat milk.")
+        self.board.data["meta"]["ack_at"] = time.time() - 21
+        self.assertEqual(poster_from_board(self.board)["ack"], "")
 
 
 class HubBoardTests(unittest.TestCase):
@@ -200,11 +250,15 @@ class HubBoardTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["poster"]["n_notes"], "0")
 
-    def test_hermes_failure_keeps_transcript(self) -> None:
-        def boom(text: str, source: str) -> str:
-            raise HermesError("ssh down")
-
-        self.state.file_fn = boom
+    def test_voice_remove_is_synchronous_and_does_not_call_hermes(self) -> None:
+        self.board.add("buy", "oat milk")
+        hermes_calls: list[str] = []
+        self.state.transcribe_fn = lambda wav: {
+            "text": "remove oat milk",
+            "raw": "remove oat milk",
+            "model": "mock",
+        }
+        self.state.file_fn = lambda text, source: hermes_calls.append(text) or "wrong"
         req = Request(
             f"http://127.0.0.1:{self.port}/v1/utterance",
             data=silence_wav(),
@@ -212,7 +266,29 @@ class HubBoardTests(unittest.TestCase):
             headers={"Content-Type": "audio/wav"},
         )
         payload = json.loads(urlopen(req, timeout=2).read())
-        self.assertEqual(payload["text"], "we are out of oat milk")
+        self.assertEqual(payload["ack"], "Removed oat milk.")
+        self.assertEqual(payload["pending"], "0")
+        self.assertEqual(payload["n_buy"], "0")
+        self.assertEqual(hermes_calls, [])
+
+    def test_hermes_failure_keeps_transcript(self) -> None:
+        def boom(text: str, source: str) -> str:
+            raise HermesError("ssh down")
+
+        self.state.file_fn = boom
+        self.state.transcribe_fn = lambda wav: {
+            "text": "pack Maya's swim kit for Thursday",
+            "raw": "pack Maya's swim kit for Thursday",
+            "model": "mock",
+        }
+        req = Request(
+            f"http://127.0.0.1:{self.port}/v1/utterance",
+            data=silence_wav(),
+            method="POST",
+            headers={"Content-Type": "audio/wav"},
+        )
+        payload = json.loads(urlopen(req, timeout=2).read())
+        self.assertEqual(payload["text"], "pack Maya's swim kit for Thursday")
         poster = wait_poster(self.port)
         self.assertEqual(poster["ack"], "heard, not filed")
         health = json.loads(

@@ -1,8 +1,4 @@
-/* Hearth board firmware: STA Wi-Fi, hold-OK to speak, Today/Buy/Menu/Notes.
- *
- * Layout still lives on-device from hub JSON. Hub-rendered 16-gray bitmaps
- * stay for a later step.
- */
+/* Hearth board firmware: STA Wi-Fi, hold-OK to speak, Today/Buy/Menu/Notes. */
 
 #include <cstdio>
 #include <cstring>
@@ -11,7 +7,6 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
-#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hearth_audio.h"
@@ -30,12 +25,15 @@
 namespace {
 
 constexpr const char* kTag = "hearth";
-constexpr const char* kFirmwareVersion = "v0.5.0-kitchen";
+constexpr const char* kFirmwareVersion = "v0.6.0-hearth";
 constexpr TickType_t kPollTick = pdMS_TO_TICKS(50);
 constexpr uint32_t kMaxClipMs = 12000;
 constexpr uint32_t kHoldGateMs = 220;
 constexpr TickType_t kIdleSnap = pdMS_TO_TICKS(20000);
 constexpr TickType_t kPosterRefresh = pdMS_TO_TICKS(90000);
+constexpr TickType_t kFilePoll = pdMS_TO_TICKS(2000);
+constexpr TickType_t kFileTimeout = pdMS_TO_TICKS(120000);
+constexpr TickType_t kAckDuration = pdMS_TO_TICKS(15000);
 
 HearthCanvas g_canvas;
 HearthState g_state;
@@ -44,18 +42,14 @@ ZectrixBoard g_board;
 zectrix_epd_handle_t g_epd = nullptr;
 char g_json[4096] = {};
 TickType_t g_last_input = 0;
+TickType_t g_last_fetch = 0;
+TickType_t g_file_started = 0;
+TickType_t g_ack_shown = 0;
 int g_rung_minute = -1;
 
 bool OkHeld() { return gpio_get_level(ZECTRIX_BUTTON_OK) == 0; }
 
 void KickIdle() { g_last_input = xTaskGetTickCount(); }
-
-void WdtPet() {
-    TaskHandle_t self = xTaskGetCurrentTaskHandle();
-    if (esp_task_wdt_status(self) == ESP_OK) {
-        (void)esp_task_wdt_reset();
-    }
-}
 
 void SyncRtcAlarm() {
     RtcPcf8563* rtc = g_board.rtc();
@@ -88,7 +82,13 @@ bool FetchPoster() {
     if (std::strcmp(previous, g_json) == 0) {
         return false;
     }
+    char previous_ack[sizeof(g_state.ack)];
+    HearthCopy(previous_ack, sizeof(previous_ack), g_state.ack);
     HearthApplyPoster(&g_state, g_json);
+    if (g_state.ack[0] != '\0' &&
+        std::strcmp(previous_ack, g_state.ack) != 0) {
+        g_ack_shown = xTaskGetTickCount();
+    }
     SyncRtcAlarm();
     return true;
 }
@@ -204,7 +204,7 @@ void SpeakTurn() {
     }
 
     g_board.SetPowerLed(true);
-    ShowVoice(HearthVoice::kListening, "release to send", false);
+    ShowVoice(HearthVoice::kListening, "listening", false);
 
     HearthClip clip;
     const esp_err_t rec = HearthRecordWhile(&g_board, &OkHeld, kMaxClipMs, &clip);
@@ -219,7 +219,7 @@ void SpeakTurn() {
         return;
     }
 
-    ShowVoice(HearthVoice::kUploading, "sending to hub", false);
+    ShowVoice(HearthVoice::kUploading, "sending", false);
     uint32_t stt_ms = 0;
     const esp_err_t posted = HearthPostUtterance(
         g_config.hub, clip.wav, clip.bytes, g_json, sizeof(g_json), &stt_ms);
@@ -237,24 +237,22 @@ void SpeakTurn() {
         HearthCopy(g_state.transcript, sizeof(g_state.transcript), "no text");
     }
     HearthApplyPoster(&g_state, g_json);
-    g_state.screen = HearthScreen::kToday;
-    if (HearthPending(g_state)) {
-        ShowVoice(HearthVoice::kUploading, "filing", false);
-        for (int i = 0; i < 80; ++i) {
-            vTaskDelay(pdMS_TO_TICKS(1500));
-            WdtPet();
-            if (FetchPoster() && !HearthPending(g_state)) {
-                break;
-            }
-        }
+    if (g_state.ack[0] != '\0') {
+        g_ack_shown = xTaskGetTickCount();
     }
-    std::snprintf(g_state.voice_status, sizeof(g_state.voice_status),
-                  "stt %u ms", static_cast<unsigned>(stt_ms));
+    g_state.screen = HearthScreen::kToday;
+    KickIdle();
+    ESP_LOGI(kTag, "heard: %s (%u ms)", g_state.transcript,
+             static_cast<unsigned>(stt_ms));
+    if (HearthPending(g_state)) {
+        g_file_started = xTaskGetTickCount();
+        g_last_fetch = g_file_started;
+        ShowVoice(HearthVoice::kFiling, "filing", false);
+        return;
+    }
     g_state.voice = HearthVoice::kIdle;
     RefreshPower();
     RefreshRadio();
-    KickIdle();
-    ESP_LOGI(kTag, "heard: %s", g_state.transcript);
     (void)Paint(true);
 }
 
@@ -263,6 +261,9 @@ void HandleOkClick() {
         g_state.alarming = false;
         KickIdle();
         return;
+    }
+    if (g_state.voice == HearthVoice::kError) {
+        g_state.voice = HearthVoice::kIdle;
     }
     if (g_state.screen == HearthScreen::kPulse) {
         (void)HearthWifiScan(&g_state);
@@ -314,9 +315,13 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(Paint(true));
     ESP_LOGI(kTag, "wifi painted: %s", g_state.wifi_status);
     KickIdle();
-    TickType_t last_fetch = xTaskGetTickCount();
+    g_last_fetch = xTaskGetTickCount();
 
     for (;;) {
+        if (OkHeld() && HearthBusy(g_state)) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
         if (OkHeld()) {
             vTaskDelay(pdMS_TO_TICKS(kHoldGateMs));
             if (OkHeld()) {
@@ -335,17 +340,34 @@ extern "C" void app_main(void) {
             RefreshRadio();
             CheckAlarm();
             const TickType_t now = xTaskGetTickCount();
+            if (g_state.ack[0] != '\0' && g_ack_shown != 0 &&
+                (now - g_ack_shown) > kAckDuration) {
+                g_state.ack[0] = '\0';
+                g_ack_shown = 0;
+                (void)Paint(false);
+            }
             if (g_state.screen != HearthScreen::kToday &&
                 (now - g_last_input) > kIdleSnap) {
                 g_state.screen = HearthScreen::kToday;
-                g_state.voice = HearthVoice::kIdle;
+                if (!HearthBusy(g_state)) {
+                    g_state.voice = HearthVoice::kIdle;
+                }
                 (void)Paint(true);
                 KickIdle();
             }
-            if ((now - last_fetch) > kPosterRefresh) {
-                last_fetch = now;
+            const bool filing = g_state.voice == HearthVoice::kFiling ||
+                                HearthPending(g_state);
+            const TickType_t interval = filing ? kFilePoll : kPosterRefresh;
+            if ((now - g_last_fetch) > interval) {
+                g_last_fetch = now;
                 if (FetchPoster()) {
+                    if (filing && !HearthPending(g_state)) {
+                        g_state.voice = HearthVoice::kIdle;
+                    }
                     (void)Paint(false);
+                } else if (filing &&
+                           (now - g_file_started) > kFileTimeout) {
+                    ShowVoice(HearthVoice::kError, "filing timed out", false);
                 }
             }
             continue;
@@ -368,16 +390,14 @@ extern "C" void app_main(void) {
         }
 
         if (event.action == ZectrixButtonAction::kClick &&
-            event.button == ZectrixButton::kUp) {
-            g_state.screen = HearthScreenPrev(g_state.screen);
-            g_state.voice = HearthVoice::kIdle;
-            RefreshPower();
-            RefreshRadio();
-            (void)Paint(true);
-        } else if (event.action == ZectrixButtonAction::kClick &&
-                   event.button == ZectrixButton::kDown) {
-            g_state.screen = HearthScreenNext(g_state.screen);
-            g_state.voice = HearthVoice::kIdle;
+            (event.button == ZectrixButton::kUp ||
+             event.button == ZectrixButton::kDown)) {
+            g_state.screen = event.button == ZectrixButton::kUp
+                                 ? HearthScreenPrev(g_state.screen)
+                                 : HearthScreenNext(g_state.screen);
+            if (!HearthBusy(g_state)) {
+                g_state.voice = HearthVoice::kIdle;
+            }
             RefreshPower();
             RefreshRadio();
             (void)Paint(true);

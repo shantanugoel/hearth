@@ -136,7 +136,7 @@ HearthState MakeToday() {
     std::snprintf(s.hub, sizeof(s.hub), "http://192.168.2.89:8790");
     std::snprintf(s.transcript, sizeof(s.transcript),
                   "we are out of oat milk");
-    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.5.0-kitchen");
+    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.6.0-hearth");
     std::snprintf(s.date, sizeof(s.date), "Mon 14 Sep");
     std::snprintf(s.weather, sizeof(s.weather), "21C  drizzle  21-30");
     std::snprintf(s.wx, sizeof(s.wx), "rain");
@@ -195,8 +195,26 @@ HearthState MakePulse() {
 
 HearthState MakeListen() {
     HearthState s = MakeToday();
+    s.ack[0] = '\0';
     s.voice = HearthVoice::kListening;
-    std::snprintf(s.voice_status, sizeof(s.voice_status), "release to send");
+    std::snprintf(s.voice_status, sizeof(s.voice_status), "listening");
+    return s;
+}
+
+HearthState MakeFiling() {
+    HearthState s = MakeToday();
+    s.ack[0] = '\0';
+    s.voice = HearthVoice::kFiling;
+    std::snprintf(s.voice_status, sizeof(s.voice_status), "filing");
+    return s;
+}
+
+HearthState MakeRemoved() {
+    HearthState s = MakeBuy();
+    std::snprintf(s.n_buy, sizeof(s.n_buy), "1");
+    std::snprintf(s.buy[0], sizeof(s.buy[0]), "eggs");
+    s.buy[1][0] = '\0';
+    std::snprintf(s.ack, sizeof(s.ack), "Removed oat milk.");
     return s;
 }
 
@@ -220,5 +238,7 @@ int main(int argc, char** argv) {
     shot("04-notes", MakeNotes());
     shot("05-pulse", MakePulse());
     shot("06-listen", MakeListen());
+    shot("07-filing", MakeFiling());
+    shot("08-removed", MakeRemoved());
     return 0;
 }

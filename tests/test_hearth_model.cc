@@ -52,6 +52,10 @@ int main() {
     assert(s.alarm_h == 7);
     assert(s.alarm_m == 0);
     assert(!HearthPending(s));
+    s.voice = HearthVoice::kFiling;
+    assert(HearthBusy(s));
+    s.voice = HearthVoice::kIdle;
+    assert(!HearthBusy(s));
     HearthState empty_alarm;
     HearthApplyPoster(&empty_alarm,
                       "{\"date\":\"Mon\",\"ahh\":\"\",\"amm\":\"\"}");

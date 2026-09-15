@@ -31,6 +31,7 @@ def empty_board() -> dict:
         "meta": {
             "last_utterance": "",
             "last_ack": "",
+            "ack_at": 0.0,
             "updated_at": "",
             "next_id": 1,
         },
@@ -343,6 +344,7 @@ class Board:
             self.data["meta"]["last_utterance"] = utterance.strip()
         if ack is not None:
             self.data["meta"]["last_ack"] = ack.strip()
+            self.data["meta"]["ack_at"] = time.time() if ack.strip() else 0.0
         self.save()
 
     def apply(self, ops: list[dict], *, source: str = "fridge") -> list[dict]:
@@ -508,7 +510,11 @@ def poster_from_board(board: Board, *, pending: bool = False) -> dict[str, Any]:
     kind = (board.data.get("weather") or {}).get("kind") or weather_kind(weather)
     meal = board.tonight_meal()
     counts = board.counts()
-    ack = (board.data.get("meta") or {}).get("last_ack") or ""
+    meta = board.data.get("meta") or {}
+    ack = meta.get("last_ack") or ""
+    ack_at = float(meta.get("ack_at") or 0.0)
+    if ack and (ack_at <= 0.0 or time.time() - ack_at > 20.0):
+        ack = ""
     buy = [item_label(item) for item in board.open_items("buy")[:8]]
     notes = [item_label(item) for item in board.open_items("notes")[:8]]
     meals = {

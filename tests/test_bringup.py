@@ -30,7 +30,7 @@ class ModelTests(unittest.TestCase):
 
 
 class SimulatorTests(unittest.TestCase):
-    def test_sim_writes_four_pngs(self) -> None:
+    def test_sim_writes_poster_pngs(self) -> None:
         subprocess.check_call(["make", "-C", str(SIM), "run"])
         for name in (
             "01-today.png",
@@ -39,6 +39,8 @@ class SimulatorTests(unittest.TestCase):
             "04-notes.png",
             "05-pulse.png",
             "06-listen.png",
+            "07-filing.png",
+            "08-removed.png",
         ):
             path = SIM / "out" / name
             self.assertTrue(path.exists(), path)

@@ -8,19 +8,24 @@
 
 namespace {
 
-constexpr int kRail = 40;
-constexpr int kLeft = 50;
-constexpr int kRight = HearthCanvas::kWidth - 14;
+constexpr int kNavHeight = 40;
+constexpr int kLeft = 20;
+constexpr int kRight = HearthCanvas::kWidth - 20;
 constexpr int kBodyWidth = kRight - kLeft;
+
+const char* TabLabel(int index) {
+    constexpr const char* kLabels[] = {"Today", "Buy", "Menu", "Notes", "Pulse"};
+    return kLabels[index];
+}
 
 const uint16_t* TabIcon(int index) {
     switch (index) {
         case 0:
             return kIconHouse;
         case 1:
-            return kIconBasket;
+            return kIconDollar;
         case 2:
-            return kIconPlate;
+            return kIconUtensils;
         case 3:
             return kIconNotes;
         default:
@@ -29,18 +34,15 @@ const uint16_t* TabIcon(int index) {
 }
 
 void DrawTabs(HearthCanvas& canvas, const HearthState& state) {
-    canvas.FillRect(0, 0, kRail, HearthCanvas::kHeight, true);
     const int index = static_cast<int>(state.screen);
     for (int i = 0; i < 5; ++i) {
-        const int y = 16 + i * 56;
+        const int x = i * 80;
         const bool on = i == index;
-        if (on) {
-            canvas.FillRect(0, y, kRail + 8, 46, false);
-            canvas.Icon16(12, y + 15, TabIcon(i), false);
-        } else {
-            canvas.Icon16(12, y + 15, TabIcon(i), true);
-        }
+        canvas.FillRect(x + 1, 2, 78, 34, on);
+        canvas.Icon16(x + 8, 11, TabIcon(i), on);
+        canvas.Text(x + 29, 11, TabLabel(i), 1, on);
     }
+    canvas.HLine(0, kNavHeight - 1, HearthCanvas::kWidth);
 }
 
 void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text,
@@ -116,13 +118,10 @@ void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text
     }
 }
 
-void WeatherTemp(const HearthState& state, char* temp, size_t cap,
-                 char* rest, size_t rest_cap) {
+void WeatherTemp(const HearthState& state, char* temp, size_t cap) {
     temp[0] = '\0';
-    rest[0] = '\0';
     const char* w = state.weather[0] ? state.weather : "";
     if (w[0] < '0' || w[0] > '9') {
-        std::snprintf(rest, rest_cap, "%s", w);
         return;
     }
     int n = 0;
@@ -131,22 +130,41 @@ void WeatherTemp(const HearthState& state, char* temp, size_t cap,
         n++;
     }
     temp[n] = '\0';
-    while (w[n] == ' ') {
-        n++;
-    }
-    std::snprintf(rest, rest_cap, "%s", w + n);
 }
 
-void DrawAck(HearthCanvas& canvas, const HearthState& state) {
-    if (state.ack[0] == '\0') {
+void DrawStatus(HearthCanvas& canvas, const HearthState& state) {
+    const char* line = nullptr;
+    bool busy = false;
+    if (state.voice == HearthVoice::kListening) {
+        line = state.voice_status[0] ? state.voice_status : "listening";
+        busy = true;
+    } else if (state.voice == HearthVoice::kUploading) {
+        line = state.voice_status[0] ? state.voice_status : "sending";
+        busy = true;
+    } else if (state.voice == HearthVoice::kFiling) {
+        line = state.voice_status[0] ? state.voice_status : "filing";
+        busy = true;
+    } else if (state.voice == HearthVoice::kError) {
+        line = state.voice_status[0] ? state.voice_status : "hub error";
+        busy = true;
+    } else if (state.ack[0] != '\0') {
+        line = state.ack;
+    }
+    if (line == nullptr) {
         return;
     }
-    canvas.HLine(kLeft, 268, kBodyWidth);
-    DrawWrapped(canvas, kLeft, 274, kBodyWidth, state.ack, 1, 16, 1);
+    const int y = 272;
+    const int h = 28;
+    canvas.FillRect(0, y, HearthCanvas::kWidth, h, busy);
+    canvas.HLine(kLeft, y, kBodyWidth, !busy);
+    const uint16_t* icon = busy ? kIconRadio : kIconDot;
+    canvas.Icon16(kLeft, y + 6, icon, busy);
+    canvas.Text(kLeft + 24, y + 6, line, 1, busy);
 }
 
-void DrawBucket(HearthCanvas& canvas, int& y, const uint16_t* icon,
-                 const char rows[][48], int shown, const char* count) {
+void DrawPeek(HearthCanvas& canvas, int x, int y, int width,
+              const uint16_t* icon, const char* title, const char rows[][48],
+              int shown, const char* count) {
     int filled = 0;
     for (int i = 0; i < shown; ++i) {
         if (rows[i][0] != '\0') {
@@ -156,13 +174,17 @@ void DrawBucket(HearthCanvas& canvas, int& y, const uint16_t* icon,
     if (filled == 0) {
         return;
     }
-    canvas.Icon16(kLeft, y, icon);
-    int row_y = y;
+    canvas.Icon16(x, y, icon);
+    char heading[24];
+    std::snprintf(heading, sizeof(heading), "%s  %s", title,
+                  count != nullptr ? count : "");
+    canvas.Text(x + 22, y, heading, 1);
+    int row_y = y + 22;
     for (int i = 0; i < shown; ++i) {
         if (rows[i][0] == '\0') {
             continue;
         }
-        canvas.Text(kLeft + 22, row_y, rows[i], 1);
+        DrawWrapped(canvas, x, row_y, width, rows[i], 1, 18, 1);
         row_y += 18;
     }
     int total = 0;
@@ -175,86 +197,80 @@ void DrawBucket(HearthCanvas& canvas, int& y, const uint16_t* icon,
     if (extra > 0) {
         char more[16];
         std::snprintf(more, sizeof(more), "+%d", extra);
-        canvas.Text(kLeft + 22, row_y, more, 1);
-        row_y += 18;
+        canvas.Text(x, row_y, more, 1);
     }
-    y = row_y + 8;
 }
 
 void DrawToday(HearthCanvas& canvas, const HearthState& state) {
     const char* date = state.date[0] ? state.date : "Today";
-    canvas.Text(kLeft, 14, date, 2);
+    canvas.Text(kLeft, 52, date, 2);
 
     char temp[12];
-    char rest[40];
-    WeatherTemp(state, temp, sizeof(temp), rest, sizeof(rest));
+    WeatherTemp(state, temp, sizeof(temp));
     const uint16_t* wx = HearthWeatherIcon(state.wx);
     const int icon_x = kRight - 16;
-    canvas.Icon16(icon_x, 14, wx);
+    canvas.Icon16(icon_x, 57, wx);
     if (temp[0] != '\0') {
         const int tw = canvas.TextWidth(temp, 2);
-        canvas.Text(icon_x - 8 - tw, 14, temp, 2);
+        canvas.Text(icon_x - 8 - tw, 52, temp, 2);
     }
 
-    int y = 52;
-    canvas.HLine(kLeft, y, kBodyWidth);
-    y = 60;
+    canvas.HLine(kLeft, 86, kBodyWidth);
 
     if (state.alarm[0] != '\0') {
-        canvas.Icon16(kLeft, y, kIconBell);
-        canvas.Text(kLeft + 22, y, state.alarm, 1);
-        y += 22;
+        canvas.Icon16(kLeft, 96, kIconBell);
+        canvas.Text(kLeft + 22, 96, state.alarm, 1);
     }
 
     if (state.meal[0] != '\0') {
-        canvas.Icon16(kLeft, y, kIconPlate);
-        DrawWrapped(canvas, kLeft + 22, y, kBodyWidth - 22, state.meal, 2, 26,
-                    1);
-        y += 32;
+        canvas.Icon16(kLeft, 124, kIconUtensils);
+        canvas.Text(kLeft + 22, 124, "TONIGHT", 1);
+        DrawWrapped(canvas, kLeft, 146, kBodyWidth, state.meal, 3, 48, 1);
     }
 
-    DrawBucket(canvas, y, kIconBasket, state.buy, 2, state.n_buy);
-    DrawBucket(canvas, y, kIconNotes, state.notes, 2, state.n_notes);
+    canvas.HLine(kLeft, 200, kBodyWidth);
+    canvas.Line(198, 208, 198, 266);
+    DrawPeek(canvas, kLeft, 210, 162, kIconDollar, "BUY", state.buy, 2,
+             state.n_buy);
+    DrawPeek(canvas, 216, 210, 164, kIconNotes, "NOTES", state.notes, 2,
+             state.n_notes);
 
     if (state.meal[0] == '\0' && state.buy[0][0] == '\0' &&
         state.notes[0][0] == '\0' && state.alarm[0] == '\0') {
-        canvas.Text(kLeft, 96, "kitchen is clear.", 1);
-        canvas.Text(kLeft, 118, "hold OK to speak.", 1);
+        canvas.Text(kLeft, 144, "Kitchen is clear.", 2);
+        canvas.Text(kLeft, 178, "Hold OK to speak.", 1);
     }
-    DrawAck(canvas, state);
 }
 
 void DrawList(HearthCanvas& canvas, const uint16_t* icon, const char* title,
-               const char rows[][48], int n, const char* empty,
-               const HearthState& state) {
-    canvas.Icon16(kLeft, 16, icon);
-    canvas.Text(kLeft + 22, 16, title, 2);
-    canvas.HLine(kLeft, 48, canvas.TextWidth(title, 2) + 22);
+               const char rows[][48], int n, const char* empty) {
+    canvas.Icon16(kLeft, 56, icon);
+    canvas.Text(kLeft + 24, 52, title, 2);
+    canvas.HLine(kLeft, 86, kBodyWidth);
     bool any = false;
-    int y = 62;
+    int y = 98;
     for (int i = 0; i < n; ++i) {
         if (rows[i][0] == '\0') {
             continue;
         }
         any = true;
-        canvas.FillRect(kLeft, y + 6, 6, 6, true);
-        canvas.Text(kLeft + 14, y, rows[i], 1);
-        y += 22;
-        if (y > 246) {
+        canvas.Rect(kLeft, y + 2, 12, 12);
+        canvas.Text(kLeft + 22, y, rows[i], 1);
+        y += 23;
+        if (y > 250) {
             break;
         }
     }
     if (!any) {
-        canvas.Text(kLeft, 80, empty, 1);
-        canvas.Text(kLeft, 104, "hold OK to speak.", 1);
+        canvas.Text(kLeft, 112, empty, 2);
+        canvas.Text(kLeft, 148, "Hold OK to speak.", 1);
     }
-    DrawAck(canvas, state);
 }
 
 void DrawMenu(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Icon16(kLeft, 16, kIconPlate);
-    canvas.Text(kLeft + 22, 16, "Menu", 2);
-    canvas.HLine(kLeft, 48, 86);
+    canvas.Icon16(kLeft, 56, kIconUtensils);
+    canvas.Text(kLeft + 24, 52, "Menu", 2);
+    canvas.HLine(kLeft, 86, kBodyWidth);
     bool any = false;
     for (int i = 0; i < 7; ++i) {
         if (state.menu[i][0] == '\0') {
@@ -263,29 +279,30 @@ void DrawMenu(HearthCanvas& canvas, const HearthState& state) {
         any = true;
         const char* line = state.menu[i];
         const bool today = line[0] == '*';
-        const int y = 58 + i * 26;
+        const int y = 96 + i * 23;
         if (today) {
-            canvas.FillRect(kLeft - 2, y - 2, kBodyWidth + 4, 22, true);
-            canvas.Text(kLeft + 4, y, line[0] == '*' ? line + 1 : line, 1,
+            canvas.FillRect(kLeft, y - 2, kBodyWidth, 21, true);
+            canvas.Text(kLeft + 8, y, line[0] == '*' ? line + 1 : line, 1,
                         true);
         } else {
-            canvas.Text(kLeft + 4, y, line[0] == ' ' ? line + 1 : line, 1);
+            canvas.Text(kLeft + 8, y, line[0] == ' ' ? line + 1 : line, 1);
+            canvas.HLine(kLeft + 8, y + 20, kBodyWidth - 16);
         }
     }
     if (!any) {
-        canvas.Text(kLeft, 80, "no dinners yet.", 1);
-        canvas.Text(kLeft, 104, "hold OK to speak.", 1);
+        canvas.Text(kLeft, 112, "No dinners yet.", 2);
+        canvas.Text(kLeft, 148, "Hold OK to speak.", 1);
     }
-    DrawAck(canvas, state);
 }
 
 void DrawPulse(HearthCanvas& canvas, const HearthState& state) {
-    canvas.Icon16(kLeft, 16, kIconRadio);
-    canvas.Text(kLeft + 22, 16, "Pulse", 2);
-    canvas.HLine(kLeft, 48, 90);
-    canvas.Text(kLeft, 62, state.wifi_status, 1);
+    canvas.Icon16(kLeft, 56, kIconRadio);
+    canvas.Text(kLeft + 24, 52, "Pulse", 2);
+    canvas.HLine(kLeft, 86, kBodyWidth);
+    canvas.Text(kLeft, 98, "WI-FI", 1);
+    canvas.Text(112, 98, state.wifi_status, 1);
     if (state.ip[0] != '\0') {
-        canvas.Text(kLeft, 82, state.ip, 1);
+        canvas.Text(112, 118, state.ip, 1);
     }
     char line[64];
     if (state.battery_valid) {
@@ -294,7 +311,8 @@ void DrawPulse(HearthCanvas& canvas, const HearthState& state) {
     } else {
         std::snprintf(line, sizeof(line), "battery  unknown");
     }
-    canvas.Text(kLeft, 106, line, 1);
+    canvas.Text(kLeft, 144, "POWER", 1);
+    canvas.Text(112, 144, line, 1);
     const char* charge = "idle";
     if (state.charge_complete) {
         charge = "full";
@@ -302,37 +320,19 @@ void DrawPulse(HearthCanvas& canvas, const HearthState& state) {
         charge = "charging";
     }
     std::snprintf(line, sizeof(line), "charger  %s", charge);
-    canvas.Text(kLeft, 126, line, 1);
+    canvas.Text(112, 164, line, 1);
     if (state.alarm[0] != '\0') {
-        canvas.Icon16(kLeft, 148, kIconBell);
-        canvas.Text(kLeft + 22, 148, state.alarm, 1);
+        canvas.Icon16(kLeft, 188, kIconBell);
+        canvas.Text(kLeft + 24, 188, state.alarm, 1);
     }
     if (state.hub[0] != '\0') {
-        canvas.Text(kLeft, 172, state.hub, 1);
+        canvas.Text(204, 188, "hub online", 1);
     }
     if (state.transcript[0] != '\0') {
-        DrawWrapped(canvas, kLeft, 196, kBodyWidth, state.transcript, 1, 18,
-                    2);
+        canvas.Text(kLeft, 216, "LAST HEARD", 1);
+        DrawWrapped(canvas, kLeft, 238, kBodyWidth, state.transcript, 1, 18, 1);
     } else {
-        canvas.Text(kLeft, 196, "nothing heard yet", 1);
-    }
-    canvas.Text(kLeft, 250, "Hold DOWN 3s to sleep.", 1);
-}
-
-void DrawVoiceOverlay(HearthCanvas& canvas, const HearthState& state) {
-    if (state.voice == HearthVoice::kIdle) {
-        return;
-    }
-    canvas.FillRect(58, 86, 310, 108, true);
-    const char* title = "listening";
-    if (state.voice == HearthVoice::kUploading) {
-        title = "sending";
-    } else if (state.voice == HearthVoice::kError) {
-        title = "hub error";
-    }
-    canvas.TextCentered(108, title, 2, true);
-    if (state.voice_status[0] != '\0') {
-        canvas.TextCentered(156, state.voice_status, 1, true);
+        canvas.Text(kLeft, 216, "Nothing heard yet.", 1);
     }
 }
 
@@ -345,15 +345,15 @@ void HearthDraw(HearthCanvas& canvas, const HearthState& state) {
             DrawToday(canvas, state);
             break;
         case HearthScreen::kBuy:
-            DrawList(canvas, kIconBasket, "Buy", state.buy, 8,
-                     "nothing to buy.", state);
+            DrawList(canvas, kIconDollar, "Buy", state.buy, 8,
+                     "nothing to buy.");
             break;
         case HearthScreen::kMenu:
             DrawMenu(canvas, state);
             break;
         case HearthScreen::kNotes:
             DrawList(canvas, kIconNotes, "Notes", state.notes, 8,
-                     "no notes yet.", state);
+                     "no notes yet.");
             break;
         case HearthScreen::kPulse:
             DrawPulse(canvas, state);
@@ -362,5 +362,5 @@ void HearthDraw(HearthCanvas& canvas, const HearthState& state) {
             break;
     }
     DrawTabs(canvas, state);
-    DrawVoiceOverlay(canvas, state);
+    DrawStatus(canvas, state);
 }

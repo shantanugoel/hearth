@@ -23,6 +23,9 @@ Do not flash NOTE4C images. Back up the full 16 MiB factory flash before the fir
 | Second surface | Fridge + the same Hermes profile on Telegram / WhatsApp / CLI. |
 | Orientation | Landscape 400 × 300 on the fridge. |
 | Today weather | v1 Today always includes a weather one-liner, not optional. |
+| Language routing | Obvious single commands are deterministic on the hub; Hermes handles mixed and ambiguous language. |
+| Agent profile | Only `hearth` uses `openai-codex / gpt-5.6-luna` with reasoning off. Other Hermes profiles keep their settings. |
+| Visual mode | Production posters use crisp 1-bit ink. The 16-gray driver remains available for imagery experiments. |
 
 ## What it is
 
@@ -47,11 +50,11 @@ The fridge is one mouth. Chat is another. Both write the same board.
 
 | Screen | Job | Layout |
 |---|---|---|
-| **Today** | Kitchen glance | Date with weather icon on the right, tonight’s meal as the headline, then a peek of Buy and Notes. Left spine is icon tabs. |
+| **Today** | Kitchen glance | Date with weather icon on the right, tonight’s meal as the headline, then a peek of Buy and Notes. A labeled tab rail sits on top. |
 | **Buy** | Shopping | Clean list. Named owners as a small suffix. |
 | **Menu** | Week of dinners | Mon–Sun, today marked. One line per day. |
 | **Notes** | Household working memory | Chores, bags, leftover thoughts. Owner suffix when named. |
-| **Pulse** | Device health | Battery, Wi-Fi, last heard phrase, alarm, hub URL. Last page, not daily. |
+| **Pulse** | Device health | Battery, Wi-Fi, last heard phrase, alarm, hub status. Last page, not daily. |
 
 `today[]` is **derived**, not a fifth dump of todos: weather + tonight’s meal + a few Notes + a few top Buy items.
 
@@ -69,13 +72,21 @@ Wi-Fi provisioning once via a setup AP. The hub owns config after that.
 
 E-ink is the feature. Design it like a kitchen print, not an app.
 
-- **Landscape 400 × 300** on the fridge. Hub renders that canvas; firmware displays the frame as received.
-- **16-level gray** for date, hero meal, rules, and weight. Body text stays high-contrast black/white.
+- **Landscape 400 × 300** on the fridge. The hub sends a flat poster payload;
+  firmware renders it immediately with the shared bitmap type and icon system.
+- **Pure black and white** for the final poster system. This keeps the bitmap
+  type sharp and lets listening/filing feedback use partial refresh. The
+  calibrated 16-gray panel path remains in the driver for future artwork.
 - Type scale: huge date, one hero line, then a short list. Wide margins. Hairline rules. No icon chrome.
 - Partial refresh for ticking an item. Full refresh when the screen changes.
-- After a voice turn: one confirmation line at the bottom (`Added oat milk to Buy`), then settle back to the poster.
+- After a voice turn: one quiet confirmation line at the bottom
+  (`Removed oat milk`), then settle back to the poster. Sound is reserved for
+  alarms so the kitchen display does not speak after every interaction.
 
-The hub **renders the bitmap**. Firmware only displays frames. That is how it stays beautiful without a layout engine on the ESP32.
+The firmware renders a compact flat poster payload from the hub. Keeping the
+layout on-device makes navigation and filing feedback immediate and avoids
+shipping full frames over Wi-Fi. The hub remains the source of content and
+language behavior.
 
 ## Data model
 
@@ -135,10 +146,13 @@ Voice turn:
 1. Hold front button, speak, release.
 2. Device uploads PCM to the hub.
 3. Hub transcribes locally and returns immediately (`pending=1`).
-4. Hub SSHes a `hearth` oneshot in the background.
-5. Hermes updates the board, returns a short ack.
-6. Device polls `/v1/poster` until `pending=0` and paints Today.
-7. Kitchen alarm uses the ES8311 speaker; spoken TTS acks stay later.
+4. The hub applies an obvious single command locally, or SSHes a `hearth`
+   oneshot in the background for mixed/ambiguous language.
+5. The selected path updates the board and returns a short ack.
+6. Simple commands return in the STT response. For agent work, the device polls
+   `/v1/poster` until `pending=0` and paints Today.
+7. Kitchen alarms use the ES8311 speaker; ordinary acknowledgements stay quiet
+   and visible in the bottom status line.
 
 The device never talks to an LLM or to the Hermes HTTP API. Deep sleep between uses. E-paper keeps the last poster.
 
@@ -174,7 +188,11 @@ None that block starting firmware bring-up. Weather source (hub fetch vs Hermes 
 3. `hearth` profile + board + Today / Buy render. First family-useful day.
 4. Menu, Do, Pack, owners-from-speech. Telegram on the same session is deferred
    (voice is the mouth for now).
-5. 16-gray posters, idle snap-back, spoken acks, morning weather + agenda refresh.
+5. Final poster polish: high-contrast layout, idle snap-back, quiet visual acks,
+   deterministic fast commands, and continuous weather + agenda refresh.
+
+Steps 0–5 are implemented. Telegram remains a separate second-surface project;
+it does not block the fridge appliance.
 
 ## References
 

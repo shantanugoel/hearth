@@ -13,8 +13,12 @@ This repository is the firmware, hub, and tools. The product plan is
 - Step 1: ESP-IDF bring-up (display, buttons, power-hold, Wi-Fi scan, sleep). See [docs/BRINGUP.md](docs/BRINGUP.md).
 - Step 2: hold-OK voice clip → hub STT → transcript on **Heard**. See [docs/VOICE.md](docs/VOICE.md).
 - Step 3: `hearth` profile files a hub board; **Today** / **Buy** posters. See [docs/BOARD.md](docs/BOARD.md).
-- Step 4: **Menu**, **Do**, **Pack**, owners-from-speech, Pulse. Telegram deferred. See [docs/BOARD.md](docs/BOARD.md).
-- Kitchen posters: icon tabs, **Notes** (Do+Pack merged), async Hermes filing, speaker alarm. Firmware `v0.5.0-kitchen`.
+- Step 4: **Menu**, unified **Notes** (Do + Pack), owners-from-speech, Pulse.
+  Telegram deferred. See [docs/BOARD.md](docs/BOARD.md).
+- Step 5: fast local command routing, weather/agenda refresh, idle return,
+  quiet visual acknowledgements, and the final high-contrast poster system.
+- Kitchen posters: labeled top tabs, **Notes**, async filing on a bottom status bar,
+  speaker alarm. Firmware `v0.6.0-hearth`.
 
 ## Hub
 

@@ -22,6 +22,7 @@ from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
 from hub.board import Board, poster_from_board, weather_kind
+from hub.commands import try_fast_command
 from hub.hermes import HermesError, file_utterance
 from hub.stt import DEFAULT_STT_MODEL, DEFAULT_STT_URL, SttError, transcribe
 from hub.wavutil import PCM_RATE, parse_wav, wrap_pcm16
@@ -103,10 +104,30 @@ class HubState:
             return ""
         if self.file_fn is None:
             return ""
-        ack = self.file_fn(text, source)
+        ack = None
+        if self.board is not None:
+            self.board.load()
+            ack = try_fast_command(self.board, text, source)
+        if ack is None:
+            ack = self.file_fn(text, source)
         if self.board is not None:
             self.board.load()
             self.board.set_meta(utterance=text, ack=ack)
+        return ack
+
+    def file_fast(self, text: str, source: str = "fridge") -> str | None:
+        """File a simple command before returning the STT response."""
+        if self.file_fn is None or self.board is None or not text.strip():
+            return None
+        self.board.load()
+        ack = try_fast_command(self.board, text, source)
+        if ack is None:
+            return None
+        self.board.set_meta(utterance=text, ack=ack)
+        with self.lock:
+            self.last_ack = ack
+            self.last_error = ""
+            self.pending = False
         return ack
 
     def file_in_background(self, text: str, source: str = "fridge") -> None:
@@ -291,7 +312,9 @@ class HubHandler(BaseHTTPRequestHandler):
         self.state.last_ms = ms
         self.state.utterances += 1
         if self.state.file_fn is not None and text.strip():
-            self.state.file_in_background(text, "fridge")
+            ack = self.state.file_fast(text, "fridge")
+            if ack is None:
+                self.state.file_in_background(text, "fridge")
         else:
             with self.state.lock:
                 self.state.pending = False
@@ -411,30 +434,8 @@ def main(argv: list[str] | None = None) -> int:
     board = Board(Path(args.board).expanduser())
 
     def mock_file(text: str, source: str) -> str:
-        lowered = text.casefold()
-        ops: list[dict] = []
-        if "got " in lowered or "bought " in lowered or "done" in lowered:
-            target = text.strip()
-            for word in ("got ", "bought "):
-                if word in lowered:
-                    target = text[lowered.find(word) + len(word) :].strip(" .")
-                    break
-            ops.append({"op": "complete", "list": "buy", "text": target or text})
-        elif "pack" in lowered or "note" in lowered or "remind" in lowered or "chore" in lowered:
-            ops.append(
-                {
-                    "op": "add",
-                    "list": "notes",
-                    "text": text.strip(),
-                    "source": source,
-                }
-            )
-        elif text.strip():
-            ops.append({"op": "add", "list": "buy", "text": text.strip(), "source": source})
-        if not ops:
-            return "heard, nothing to file"
-        board.apply(ops, source=source)
-        return "filed."
+        ack = try_fast_command(board, text, source)
+        return ack or "Heard, nothing to file."
 
     file_fn: FileFn | None
     if args.no_hermes:

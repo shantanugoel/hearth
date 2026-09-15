@@ -37,9 +37,12 @@ int main() {
     const char* poster =
         "{\"date\":\"Mon 14 Sep\",\"weather\":\"29C  fair\",\"wx\":\"sun\","
         "\"meal\":\"dal rice\",\"ack\":\"Added oat milk to Buy.\","
-        "\"pending\":\"0\",\"n_buy\":\"1\",\"n_notes\":\"1\","
+        "\"pending\":\"1\",\"queue\":\"2\",\"heard\":\"set lunch to dal\","
+        "\"n_buy\":\"1\",\"n_notes\":\"1\","
         "\"b0\":\"oat milk\",\"b1\":\"\",\"n0\":\"swim kit  Maya\","
-        "\"m0\":\"*Mon  dal rice\",\"m1\":\" Tue\",\"alarm\":\"07:00 school\","
+        "\"m0\":\"Lunch: dal rice\",\"mid0\":\"mon/lunch\","
+        "\"m1\":\"Dinner: pasta\",\"mid1\":\"tue/dinner\","
+        "\"alarm\":\"07:00 school\","
         "\"ahh\":\"7\",\"amm\":\"0\"}";
     HearthApplyPoster(&s, poster);
     assert(std::strcmp(s.date, "Mon 14 Sep") == 0);
@@ -47,11 +50,14 @@ int main() {
     assert(s.buy[1][0] == '\0');
     assert(std::strcmp(s.n_buy, "1") == 0);
     assert(std::strcmp(s.notes[0], "swim kit  Maya") == 0);
-    assert(s.menu[0][0] == '*');
+    assert(std::strcmp(s.menu[0], "Lunch: dal rice") == 0);
+    assert(std::strcmp(s.menu_id[0], "mon/lunch") == 0);
+    assert(s.queue_depth == 2);
+    assert(std::strcmp(s.transcript, "set lunch to dal") == 0);
     assert(std::strcmp(s.wx, "sun") == 0);
     assert(s.alarm_h == 7);
     assert(s.alarm_m == 0);
-    assert(!HearthPending(s));
+    assert(HearthPending(s));
     s.voice = HearthVoice::kFiling;
     assert(HearthBusy(s));
     s.voice = HearthVoice::kIdle;

@@ -14,15 +14,15 @@
 namespace {
 
 constexpr const char* kTag = "hearth_net";
-constexpr int kBodyCap = 4096;
+constexpr int kBodyCap = 8192;
 
 struct Sink {
     char buffer[kBodyCap] = {};
     int length = 0;
+    bool overflow = false;
 };
 
-// HTTP is only called from the main task. Keep the 4 KiB sink off the
-// 8 KiB main stack; stacking it next to a poster buffer overflows.
+// All runtime HTTP runs on the dedicated network task after startup.
 Sink g_sink;
 
 esp_err_t OnHttp(esp_http_client_event_t* event) {
@@ -35,11 +35,13 @@ esp_err_t OnHttp(esp_http_client_event_t* event) {
     }
     const int room = kBodyCap - 1 - sink->length;
     if (room <= 0) {
+        sink->overflow = true;
         return ESP_OK;
     }
     const int n = event->data_len < room ? event->data_len : room;
     std::memcpy(sink->buffer + sink->length, event->data, n);
     sink->length += n;
+    if (n < event->data_len) sink->overflow = true;
     sink->buffer[sink->length] = '\0';
     return ESP_OK;
 }
@@ -51,17 +53,18 @@ void JoinHub(char* url, size_t cap, const char* hub_base, const char* path) {
 
 esp_err_t Perform(const char* url, esp_http_client_method_t method,
                   const uint8_t* body, size_t body_len, const char* content_type,
-                  char* out, size_t cap) {
+                  char* out, size_t cap, const char* client_id = nullptr) {
     if (out == nullptr || cap == 0) {
         return ESP_ERR_INVALID_ARG;
     }
     out[0] = '\0';
     g_sink.length = 0;
+    g_sink.overflow = false;
     g_sink.buffer[0] = '\0';
     esp_http_client_config_t cfg = {};
     cfg.url = url;
     cfg.method = method;
-    cfg.timeout_ms = 180000;
+    cfg.timeout_ms = 15000;
     cfg.event_handler = OnHttp;
     cfg.user_data = &g_sink;
 
@@ -72,6 +75,8 @@ esp_err_t Perform(const char* url, esp_http_client_method_t method,
     if (content_type != nullptr) {
         esp_http_client_set_header(client, "Content-Type", content_type);
     }
+    if (client_id != nullptr && client_id[0])
+        esp_http_client_set_header(client, "X-Hearth-Request-Id", client_id);
     if (body != nullptr && body_len > 0) {
         esp_http_client_set_post_field(client,
                                         reinterpret_cast<const char*>(body),
@@ -92,6 +97,10 @@ esp_err_t Perform(const char* url, esp_http_client_method_t method,
     if (err != ESP_OK) {
         ESP_LOGW(kTag, "%s failed: %s", url, esp_err_to_name(err));
         return err;
+    }
+    if (g_sink.overflow) {
+        ESP_LOGW(kTag, "%s response exceeded %d bytes", url, kBodyCap);
+        return ESP_ERR_INVALID_SIZE;
     }
     if (status != 200) {
         ESP_LOGW(kTag, "%s HTTP %d body=%s", url, status, g_sink.buffer);
@@ -121,7 +130,7 @@ esp_err_t HearthHttpPost(const char* url, const uint8_t* body, size_t body_len,
 
 esp_err_t HearthPostUtterance(const char* hub_base, const uint8_t* wav,
                               size_t wav_bytes, char* json, size_t json_cap,
-                              uint32_t* stt_ms) {
+                              uint32_t* stt_ms, const char* client_id) {
     if (hub_base == nullptr || hub_base[0] == '\0' || wav == nullptr ||
         wav_bytes == 0 || json == nullptr || json_cap == 0) {
         return ESP_ERR_INVALID_ARG;
@@ -131,8 +140,8 @@ esp_err_t HearthPostUtterance(const char* hub_base, const uint8_t* wav,
     }
     char url[128];
     JoinHub(url, sizeof(url), hub_base, "v1/utterance");
-    const esp_err_t err =
-        HearthHttpPost(url, wav, wav_bytes, "audio/wav", json, json_cap);
+    const esp_err_t err = Perform(url, HTTP_METHOD_POST, wav, wav_bytes,
+                                  "audio/wav", json, json_cap, client_id);
     if (err != ESP_OK) {
         return err;
     }
@@ -142,10 +151,9 @@ esp_err_t HearthPostUtterance(const char* hub_base, const uint8_t* wav,
             *stt_ms = static_cast<uint32_t>(atoi(ms));
         }
     }
-    char text[80];
-    if (HearthJsonString(json, "text", text, sizeof(text))) {
-        ESP_LOGI(kTag, "transcript: %s", text);
-    }
+    char request_id[40];
+    if (HearthJsonString(json, "request_id", request_id, sizeof(request_id)))
+        ESP_LOGI(kTag, "voice queued: %s", request_id);
     return ESP_OK;
 }
 

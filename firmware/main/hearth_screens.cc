@@ -46,7 +46,7 @@ void DrawTabs(HearthCanvas& canvas, const HearthState& state) {
 }
 
 void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text,
-                 int scale, int line_height, int max_lines) {
+                 int scale, int line_height, int max_lines, bool inverted = false) {
     if (text == nullptr || text[0] == '\0' || max_lines <= 0) {
         return;
     }
@@ -56,7 +56,7 @@ void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text
     int row = 0;
     auto flush = [&]() {
         line[used] = '\0';
-        canvas.Text(x, y + row * line_height, line, scale);
+        canvas.Text(x, y + row * line_height, line, scale, inverted);
         used = 0;
         px = 0;
         row++;
@@ -162,45 +162,6 @@ void DrawStatus(HearthCanvas& canvas, const HearthState& state) {
     canvas.Text(kLeft + 24, y + 6, line, 1, busy);
 }
 
-void DrawPeek(HearthCanvas& canvas, int x, int y, int width,
-              const uint16_t* icon, const char* title, const char rows[][48],
-              int shown, const char* count) {
-    int filled = 0;
-    for (int i = 0; i < shown; ++i) {
-        if (rows[i][0] != '\0') {
-            filled++;
-        }
-    }
-    if (filled == 0) {
-        return;
-    }
-    canvas.Icon16(x, y, icon);
-    char heading[24];
-    std::snprintf(heading, sizeof(heading), "%s  %s", title,
-                  count != nullptr ? count : "");
-    canvas.Text(x + 22, y, heading, 1);
-    int row_y = y + 22;
-    for (int i = 0; i < shown; ++i) {
-        if (rows[i][0] == '\0') {
-            continue;
-        }
-        DrawWrapped(canvas, x, row_y, width, rows[i], 1, 18, 1);
-        row_y += 18;
-    }
-    int total = 0;
-    if (count != nullptr) {
-        for (const char* p = count; *p >= '0' && *p <= '9'; ++p) {
-            total = total * 10 + (*p - '0');
-        }
-    }
-    const int extra = total > filled ? total - filled : 0;
-    if (extra > 0) {
-        char more[16];
-        std::snprintf(more, sizeof(more), "+%d", extra);
-        canvas.Text(x, row_y, more, 1);
-    }
-}
-
 void DrawToday(HearthCanvas& canvas, const HearthState& state) {
     const char* date = state.date[0] ? state.date : "Today";
     canvas.Text(kLeft, 52, date, 2);
@@ -222,40 +183,64 @@ void DrawToday(HearthCanvas& canvas, const HearthState& state) {
         canvas.Text(kLeft + 22, 96, state.alarm, 1);
     }
 
-    if (state.meal[0] != '\0') {
-        canvas.Icon16(kLeft, 124, kIconUtensils);
-        canvas.Text(kLeft + 22, 124, "TONIGHT", 1);
-        DrawWrapped(canvas, kLeft, 146, kBodyWidth, state.meal, 3, 48, 1);
+    const int heading_y = state.alarm[0] ? 121 : 98;
+    canvas.Icon16(kLeft, heading_y, kIconNotes);
+    char heading[32];
+    std::snprintf(heading, sizeof(heading), "NOTES  %s", state.n_notes);
+    canvas.Text(kLeft + 24, heading_y, heading, 1);
+    const int first_y = heading_y + 23;
+    int shown = 0;
+    const int visible_cap = state.alarm[0] ? 3 : 4;
+    const int start = state.selected[0] >= visible_cap ? state.selected[0] - visible_cap + 1 : 0;
+    for (int i = start; i < 12 && i < start + visible_cap && state.notes[i][0]; ++i) {
+        const int y = first_y + (i - start) * 24;
+        const bool selected = state.selected[0] == i;
+        if (selected) canvas.FillRect(kLeft - 3, y - 3, kBodyWidth + 6, 22, true);
+        canvas.Rect(kLeft + 4, y + 1, 13, 13, !selected);
+        if (state.notes_done[i]) canvas.Text(kLeft + 6, y - 1, "x", 1, selected);
+        DrawWrapped(canvas, kLeft + 25, y, kBodyWidth - 32, state.notes[i], 1, 18, 1, selected);
+        shown++;
     }
-
-    canvas.HLine(kLeft, 200, kBodyWidth);
-    canvas.Line(198, 208, 198, 266);
-    DrawPeek(canvas, kLeft, 210, 162, kIconDollar, "BUY", state.buy, 2,
-             state.n_buy);
-    DrawPeek(canvas, 216, 210, 164, kIconNotes, "NOTES", state.notes, 2,
-             state.n_notes);
-
-    if (state.meal[0] == '\0' && state.buy[0][0] == '\0' &&
-        state.notes[0][0] == '\0' && state.alarm[0] == '\0') {
-        canvas.Text(kLeft, 144, "Kitchen is clear.", 2);
-        canvas.Text(kLeft, 178, "Hold OK to speak.", 1);
+    if (!shown) {
+        canvas.Text(kLeft, first_y + 10, "No notes yet.", 2);
+    }
+    canvas.HLine(kLeft, 213, kBodyWidth);
+    canvas.Line(198, 220, 198, 268);
+    canvas.Icon16(kLeft, 221, kIconDollar);
+    char count[24];
+    std::snprintf(count, sizeof(count), "BUY  %s", state.n_buy);
+    canvas.Text(kLeft + 22, 221, count, 1);
+    canvas.Icon16(216, 221, kIconUtensils);
+    canvas.Text(238, 221, "MENU", 1);
+    for (int i = 0; i < 2; ++i) {
+        if (state.peek_buy[i][0])
+            DrawWrapped(canvas, kLeft, 240 + i * 17, 164,
+                        state.peek_buy[i], 1, 17, 1);
+        if (state.peek_menu[i][0])
+            DrawWrapped(canvas, 216, 240 + i * 17, 164,
+                        state.peek_menu[i], 1, 17, 1);
     }
 }
 
 void DrawList(HearthCanvas& canvas, const uint16_t* icon, const char* title,
-               const char rows[][48], int n, const char* empty) {
+               const char rows[][48], const bool* done, int n, int selected,
+               const char* empty) {
     canvas.Icon16(kLeft, 56, icon);
     canvas.Text(kLeft + 24, 52, title, 2);
     canvas.HLine(kLeft, 86, kBodyWidth);
     bool any = false;
+    const int start = selected >= 7 ? selected - 6 : 0;
     int y = 98;
-    for (int i = 0; i < n; ++i) {
+    for (int i = start; i < n && i < start + 7; ++i) {
         if (rows[i][0] == '\0') {
             continue;
         }
         any = true;
-        canvas.Rect(kLeft, y + 2, 12, 12);
-        canvas.Text(kLeft + 22, y, rows[i], 1);
+        const bool on = i == selected;
+        if (on) canvas.FillRect(kLeft - 3, y - 3, kBodyWidth + 6, 22, true);
+        canvas.Rect(kLeft + 3, y + 2, 12, 12, !on);
+        if (done[i]) canvas.Text(kLeft + 5, y, "x", 1, on);
+        DrawWrapped(canvas, kLeft + 23, y, kBodyWidth - 30, rows[i], 1, 18, 1, on);
         y += 23;
         if (y > 250) {
             break;
@@ -272,25 +257,41 @@ void DrawMenu(HearthCanvas& canvas, const HearthState& state) {
     canvas.Text(kLeft + 24, 52, "Menu", 2);
     canvas.HLine(kLeft, 86, kBodyWidth);
     bool any = false;
-    for (int i = 0; i < 7; ++i) {
+    constexpr const char* kDays[] = {"Monday", "Tuesday", "Wednesday",
+                                     "Thursday", "Friday", "Saturday", "Sunday"};
+    constexpr const char* kKeys[] = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"};
+    // Reserve space for a heading even if each visible meal is on a new day.
+    const int start = state.selected[2] >= 3 ? state.selected[2] - 2 : 0;
+    int y = 96;
+    int previous_day = -1;
+    for (int i = start; i < 21 && y < 258; ++i) {
         if (state.menu[i][0] == '\0') {
-            continue;
+            break;
         }
         any = true;
-        const char* line = state.menu[i];
-        const bool today = line[0] == '*';
-        const int y = 96 + i * 23;
-        if (today) {
-            canvas.FillRect(kLeft, y - 2, kBodyWidth, 21, true);
-            canvas.Text(kLeft + 8, y, line[0] == '*' ? line + 1 : line, 1,
-                        true);
-        } else {
-            canvas.Text(kLeft + 8, y, line[0] == ' ' ? line + 1 : line, 1);
-            canvas.HLine(kLeft + 8, y + 20, kBodyWidth - 16);
+        int day = -1;
+        for (int d = 0; d < 7; ++d)
+            if (std::strncmp(state.menu_id[i], kKeys[d], 3) == 0) day = d;
+        if (day != previous_day) {
+            if (y > 229) break;
+            if (previous_day >= 0) canvas.HLine(kLeft + 8, y - 5, kBodyWidth - 16);
+            canvas.Text(kLeft + 8, y, day >= 0 ? kDays[day] : "Day", 2);
+            y += 30;
+            previous_day = day;
         }
+        if (y > 253) break;
+        if (i == state.selected[2]) {
+            canvas.FillRect(kLeft, y - 2, kBodyWidth, 21, true);
+            DrawWrapped(canvas, kLeft + 14, y, kBodyWidth - 24,
+                        state.menu[i], 1, 19, 1, true);
+        } else {
+            DrawWrapped(canvas, kLeft + 14, y, kBodyWidth - 24,
+                        state.menu[i], 1, 19, 1);
+        }
+        y += 25;
     }
     if (!any) {
-        canvas.Text(kLeft, 112, "No dinners yet.", 2);
+        canvas.Text(kLeft, 112, "No meals yet.", 2);
         canvas.Text(kLeft, 148, "Hold OK to speak.", 1);
     }
 }
@@ -345,14 +346,16 @@ void HearthDraw(HearthCanvas& canvas, const HearthState& state) {
             DrawToday(canvas, state);
             break;
         case HearthScreen::kBuy:
-            DrawList(canvas, kIconDollar, "Buy", state.buy, 8,
+            DrawList(canvas, kIconDollar, "Buy", state.buy, state.buy_done,
+                     12, state.selected[1],
                      "nothing to buy.");
             break;
         case HearthScreen::kMenu:
             DrawMenu(canvas, state);
             break;
         case HearthScreen::kNotes:
-            DrawList(canvas, kIconNotes, "Notes", state.notes, 8,
+            DrawList(canvas, kIconNotes, "Notes", state.notes,
+                     state.notes_done, 12, state.selected[3],
                      "no notes yet.");
             break;
         case HearthScreen::kPulse:

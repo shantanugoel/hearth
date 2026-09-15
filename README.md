@@ -15,10 +15,11 @@ This repository is the firmware, hub, and tools. The product plan is
 - Step 3: `hearth` profile files a hub board; **Today** / **Buy** posters. See [docs/BOARD.md](docs/BOARD.md).
 - Step 4: **Menu**, unified **Notes** (Do + Pack), owners-from-speech, Pulse.
   Telegram deferred. See [docs/BOARD.md](docs/BOARD.md).
-- Step 5: fast local command routing, weather/agenda refresh, idle return,
+- Step 5: Hermes-first command filing through native board tools, weather/agenda refresh, idle return,
   quiet visual acknowledgements, and the final high-contrast poster system.
-- Kitchen posters: labeled top tabs, **Notes**, async filing on a bottom status bar,
-  speaker alarm. Firmware `v0.6.0-hearth`.
+- Kitchen posters: labeled top tabs, **Notes**, a weekday Menu, queued voice
+  requests with responsive buttons, louder one-shot alarm, and agentic Hearth
+  board tools. Firmware `v0.9.0-hearth`.
 
 ## Hub
 

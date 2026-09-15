@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install SOUL + hearth-board onto the hearth profile on hermes-incus.
+# Install SOUL, hearth-board skill, and MCP board tools onto the hearth profile.
 # Does not make hearth the sticky default profile.
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
@@ -7,14 +7,17 @@ HOST="${HEARTH_HERMES_SSH:-hermes-incus}"
 DEST="${HEARTH_HERMES_HOME:-/home/hermes/.hermes/profiles/hearth}"
 HUB_URL="${HEARTH_HUB_URL:-http://192.168.2.89:8790}"
 
-ssh -o BatchMode=yes "$HOST" "mkdir -p '$DEST/skills/productivity/hearth-board'"
+ssh -o BatchMode=yes "$HOST" "mkdir -p '$DEST/skills/productivity/hearth-board' '$DEST/tools'"
 scp -q "$ROOT/hermes-profile/SOUL.md" "$HOST:$DEST/SOUL.md"
 scp -q "$ROOT/hermes-profile/skills/hearth-board/SKILL.md" \
   "$HOST:$DEST/skills/productivity/hearth-board/SKILL.md"
+scp -q "$ROOT/hermes-profile/hearth_mcp.py" "$HOST:$DEST/tools/hearth_mcp.py"
+ssh -o BatchMode=yes "$HOST" "chmod 755 '$DEST/tools/hearth_mcp.py'; export PATH=\"\$HOME/.local/bin:\$PATH\"; if ! hearth mcp list | grep -q 'hearth-board'; then printf 'y\\n' | hearth mcp add hearth-board --command '$DEST/tools/hearth_mcp.py'; fi"
 
 # Disable bundled coding skills (leave the files) and publish the hub URL.
 ssh -o BatchMode=yes "$HOST" "python3 - '$DEST' '$HUB_URL'" <<'PY'
 import sys
+import json
 from pathlib import Path
 
 dest = Path(sys.argv[1])
@@ -22,11 +25,10 @@ hub = sys.argv[2]
 
 env = dest / ".env"
 text = env.read_text(encoding="utf-8") if env.exists() else ""
-if "HEARTH_HUB_URL=" not in text:
-    if text and not text.endswith("\n"):
-        text += "\n"
-    text += f"HEARTH_HUB_URL={hub}\n"
-    env.write_text(text, encoding="utf-8")
+text = "\n".join(line for line in text.splitlines() if not line.startswith("HEARTH_HUB_URL="))
+if text:
+    text += "\n"
+env.write_text(text + f"HEARTH_HUB_URL={hub}\n", encoding="utf-8")
 
 cfg = dest / "config.yaml"
 raw = cfg.read_text(encoding="utf-8") if cfg.exists() else "skills:\n  disabled: []\n"
@@ -64,6 +66,30 @@ def upsert(section, key, value):
 upsert("model", "provider", "openai-codex")
 upsert("model", "default", "gpt-5.6-luna")
 upsert("agent", "reasoning_effort", "none")
+
+# Hermes filters the environment for MCP children. Explicitly pass the
+# per-utterance ID so the hub can report the result of this turn only.
+lines = raw.splitlines(keepends=True)
+i = len(lines) - 1
+while i >= 0:
+    if (lines[i].strip() == "HEARTH_RUN_ID: ${HEARTH_RUN_ID}"
+            or lines[i].strip().startswith("HEARTH_HUB_URL:")):
+        del lines[i]
+        if (0 <= i - 1 < len(lines) and lines[i - 1].strip() == "env:"
+                and (i >= len(lines) or not lines[i].startswith("      "))):
+            del lines[i - 1]
+            i -= 1
+    i -= 1
+server = next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == "  hearth-board:"), None)
+if server is not None:
+    end = next((i for i in range(server + 1, len(lines)) if not lines[i].startswith("    ")), len(lines))
+    env_line = next((i for i in range(server + 1, end) if lines[i].strip() == "env:"), None)
+    settings = f"      HEARTH_RUN_ID: ${{HEARTH_RUN_ID}}\n      HEARTH_HUB_URL: {json.dumps(hub)}\n"
+    if env_line is None:
+        lines.insert(end, "    env:\n" + settings)
+    else:
+        lines.insert(env_line + 1, settings)
+    raw = "".join(lines)
 
 needed = [
     "github",

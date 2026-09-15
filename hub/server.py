@@ -13,15 +13,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import sys
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
-from hub.board import Board, poster_from_board, weather_kind
+from hub.board import Board, ack_for_results, poster_from_board, weather_kind
 from hub.commands import try_fast_command
 from hub.hermes import HermesError, file_utterance
 from hub.stt import DEFAULT_STT_MODEL, DEFAULT_STT_URL, SttError, transcribe
@@ -29,7 +31,7 @@ from hub.wavutil import PCM_RATE, parse_wav, wrap_pcm16
 from hub.weather import fetch_weather
 
 TranscribeFn = Callable[[bytes], dict]
-FileFn = Callable[[str, str], str]
+FileFn = Callable[[str, str, dict], str]
 
 
 def default_board_path() -> Path:
@@ -67,6 +69,12 @@ class HubState:
         self.last_weather_mono = 0.0
         self.pending = False
         self.lock = threading.Lock()
+        self.board_lock = threading.RLock()
+        self.jobs: queue.Queue[tuple[str, bytes, str]] = queue.Queue()
+        self.queue_depth = 0
+        self.seen_client_ids: dict[str, str] = {}
+        self.worker = threading.Thread(target=self._work, daemon=True, name="hearth-voice-queue")
+        self.worker.start()
 
     def refresh_weather(self, force: bool = False) -> None:
         if self.board is None:
@@ -90,81 +98,98 @@ class HubState:
         self.board.set_weather(line, weather_kind(line))
         self.last_weather_mono = now
 
-    def poster(self) -> dict:
+    def poster(self, *, buy_offset: int = 0, notes_offset: int = 0) -> dict:
         if self.board is None:
             return {}
-        self.refresh_weather()
-        self.board.load()
         with self.lock:
             pending = self.pending
-        return poster_from_board(self.board, pending=pending)
+            depth = self.queue_depth
+        with self.board_lock:
+            self.refresh_weather()
+            self.board.load()
+            payload = poster_from_board(
+                self.board, pending=pending, buy_offset=buy_offset, notes_offset=notes_offset
+            )
+        payload["queue"] = str(depth)
+        return payload
 
     def file_transcript(self, text: str, source: str = "fridge") -> str:
         if not text.strip():
             return ""
         if self.file_fn is None:
             return ""
-        ack = None
+        snapshot = {}
         if self.board is not None:
-            self.board.load()
-            ack = try_fast_command(self.board, text, source)
-        if ack is None:
-            ack = self.file_fn(text, source)
+            with self.board_lock:
+                self.board.load()
+                snapshot = self.board.snapshot()
+                snapshot["meta"]["file_run_id"] = uuid.uuid4().hex
+        agent_reply = self.file_fn(text, source, snapshot)
         if self.board is not None:
-            self.board.load()
-            self.board.set_meta(utterance=text, ack=ack)
-        return ack
+            with self.board_lock:
+                self.board.load()
+                meta = self.board.data.get("meta") or {}
+                ack = meta.get("agent_ack") if meta.get("agent_ack_run_id") == snapshot["meta"]["file_run_id"] else ""
+            return ack if ack else "Heard, not filed."
+        return agent_reply or "Heard, not filed."
 
-    def file_fast(self, text: str, source: str = "fridge") -> str | None:
-        """File a simple command before returning the STT response."""
-        if self.file_fn is None or self.board is None or not text.strip():
-            return None
-        self.board.load()
-        ack = try_fast_command(self.board, text, source)
-        if ack is None:
-            return None
-        self.board.set_meta(utterance=text, ack=ack)
+    def enqueue_utterance(self, wav: bytes, source: str = "fridge",
+                          client_id: str = "") -> tuple[str, int] | None:
         with self.lock:
-            self.last_ack = ack
-            self.last_error = ""
-            self.pending = False
-        return ack
+            if client_id and client_id in self.seen_client_ids:
+                return self.seen_client_ids[client_id], self.queue_depth
+            if self.queue_depth >= 8:
+                return None
+            request_id = uuid.uuid4().hex
+            if client_id:
+                self.seen_client_ids[client_id] = request_id
+                if len(self.seen_client_ids) > 128:
+                    del self.seen_client_ids[next(iter(self.seen_client_ids))]
+            self.queue_depth += 1
+            self.pending = True
+            self.utterances += 1
+            depth = self.queue_depth
+        self.jobs.put_nowait((request_id, wav, source))
+        return request_id, depth
 
-    def file_in_background(self, text: str, source: str = "fridge") -> None:
-        if self.file_fn is None or not text.strip():
-            with self.lock:
-                self.pending = False
-            return
-
-        def run() -> None:
-            ack = "heard, not filed"
+    def _work(self) -> None:
+        while True:
+            request_id, wav, source = self.jobs.get()
+            text = ""
+            ack = "Heard, nothing to file."
             err = ""
+            started = time.monotonic()
             try:
-                ack = self.file_transcript(text, source)
-            except HermesError as exc:
-                ack = "heard, not filed"
-                err = str(exc)
+                if self.dump_dir is not None:
+                    self.dump_dir.mkdir(parents=True, exist_ok=True)
+                    (self.dump_dir / f"{request_id}.wav").write_bytes(wav)
+                result = self.transcribe_fn(wav)
+                text = str(result.get("text") or "")
+                with self.lock:
+                    self.last_text = text
+                    self.last_ms = int((time.monotonic() - started) * 1000)
+                if text.strip():
+                    if self.board is not None:
+                        with self.board_lock:
+                            self.board.load()
+                            self.board.set_meta(utterance=text, ack="")
+                    ack = self.file_transcript(text, source) if self.file_fn is not None else "Heard, not filed."
             except Exception as exc:  # noqa: BLE001
-                ack = "heard, not filed"
                 err = str(exc)
+                ack = "Speech not heard." if not text else "Heard, not filed."
             try:
                 if self.board is not None:
-                    self.board.load()
-                    self.board.set_meta(ack=ack)
+                    with self.board_lock:
+                        self.board.load()
+                        self.board.set_meta(ack=ack)
             except Exception as exc:  # noqa: BLE001
-                if not err:
-                    err = str(exc)
+                err = err or str(exc)
             with self.lock:
                 self.last_ack = ack
                 self.last_error = err
-                self.pending = False
-
-        with self.lock:
-            self.pending = True
-            self.last_ack = ""
-        if self.board is not None:
-            self.board.set_meta(utterance=text, ack="")
-        threading.Thread(target=run, daemon=True, name="hearth-file").start()
+                self.queue_depth -= 1
+                self.pending = self.queue_depth > 0
+            self.jobs.task_done()
 
 
 def _multipart_file(body: bytes, content_type: str) -> bytes | None:
@@ -242,18 +267,30 @@ class HubHandler(BaseHTTPRequestHandler):
                     "last_ack": self.state.last_ack,
                     "last_error": self.state.last_error,
                     "pending": self.state.pending,
+                    "queue": self.state.queue_depth,
                 },
             )
             return
         if path in ("/v1/poster", "/v1/snapshot"):
-            self._send_json(200, self.state.poster())
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                buy_offset = int(query.get("buy_offset", ["0"])[0])
+                notes_offset = int(query.get("notes_offset", ["0"])[0])
+            except ValueError:
+                self._send_json(400, {"error": "bad poster offset"})
+                return
+            self._send_json(200, self.state.poster(
+                buy_offset=buy_offset, notes_offset=notes_offset
+            ))
             return
         if path == "/v1/board":
             if self.state.board is None:
                 self._send_json(503, {"error": "no board"})
                 return
-            self.state.board.load()
-            self._send_json(200, self.state.board.snapshot())
+            with self.state.board_lock:
+                self.state.board.load()
+                snapshot = self.state.board.snapshot()
+            self._send_json(200, snapshot)
             return
         if path in ("/", "/index.html"):
             self._send_text(
@@ -290,44 +327,15 @@ class HubHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": str(exc)})
             return
 
-        if self.state.dump_dir is not None:
-            self.state.dump_dir.mkdir(parents=True, exist_ok=True)
-            stamp = time.strftime("%Y%m%d-%H%M%S")
-            (self.state.dump_dir / f"{stamp}.wav").write_bytes(wav)
-
-        started = time.monotonic()
-        try:
-            result = self.state.transcribe_fn(wav)
-        except SttError as exc:
-            self.state.last_error = str(exc)
-            self._send_json(502, {"error": str(exc)})
+        queued = self.state.enqueue_utterance(
+            wav, client_id=self.headers.get("X-Hearth-Request-Id", "")[:64]
+        )
+        if queued is None:
+            self._send_json(429, {"error": "voice queue full; retry shortly"})
             return
-        except Exception as exc:  # noqa: BLE001
-            self.state.last_error = str(exc)
-            self._send_json(500, {"error": str(exc)})
-            return
-        ms = int((time.monotonic() - started) * 1000)
-        text = result.get("text") or ""
-        self.state.last_text = text
-        self.state.last_ms = ms
-        self.state.utterances += 1
-        if self.state.file_fn is not None and text.strip():
-            ack = self.state.file_fast(text, "fridge")
-            if ack is None:
-                self.state.file_in_background(text, "fridge")
-        else:
-            with self.state.lock:
-                self.state.pending = False
-        payload = {
-            "text": text,
-            "raw": result.get("raw", text),
-            "ack": self.state.last_ack,
-            "ms": ms,
-            "model": result.get("model", self.state.stt_model),
-        }
-        payload.update(self.state.poster())
-        payload["text"] = text
-        self._send_json(200, payload)
+        request_id, depth = queued
+        self._send_json(200, {"accepted": True, "request_id": request_id,
+                              "queue": depth, "pending": "1" if depth else "0"})
 
     def _apply(self) -> None:
         if self.state.board is None:
@@ -342,20 +350,23 @@ class HubHandler(BaseHTTPRequestHandler):
             ops = payload.get("ops")
             if not isinstance(ops, list):
                 raise ValueError("ops must be a list")
-            results = self.state.board.apply(
-                ops, source=str(payload.get("source") or "fridge")
-            )
+            with self.state.board_lock:
+                self.state.board.load()
+                results = self.state.board.apply(
+                    ops, source=str(payload.get("source") or "fridge")
+                )
+                ok, ack = ack_for_results(results)
+                self.state.board.set_meta(ack=ack)
+                run_id = str(payload.get("run_id") or "")
+                if run_id:
+                    self.state.board.data["meta"]["agent_ack_run_id"] = run_id
+                    self.state.board.data["meta"]["agent_ack"] = ack
+                    self.state.board.save()
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": str(exc)})
             return
-        ack = str(payload.get("ack") or "")
-        if ack:
-            self.state.board.set_meta(ack=ack)
-            self.state.last_ack = ack
-        self._send_json(
-            200,
-            {"ok": True, "results": results, "poster": self.state.poster()},
-        )
+        self.state.last_ack = ack
+        self._send_json(200, {"ok": ok, "ack": ack, "results": results})
 
     def _to_wav(self, body: bytes, ctype: str, query: dict) -> bytes:
         multi = _multipart_file(body, ctype)
@@ -433,8 +444,13 @@ def main(argv: list[str] | None = None) -> int:
 
     board = Board(Path(args.board).expanduser())
 
-    def mock_file(text: str, source: str) -> str:
+    def mock_file(text: str, source: str, board_snapshot: dict) -> str:
         ack = try_fast_command(board, text, source)
+        if ack:
+            board.set_meta(ack=ack)
+            board.data["meta"]["agent_ack"] = ack
+            board.data["meta"]["agent_ack_run_id"] = board_snapshot.get("meta", {}).get("file_run_id") or ""
+            board.save()
         return ack or "Heard, nothing to file."
 
     file_fn: FileFn | None

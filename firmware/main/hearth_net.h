@@ -13,7 +13,7 @@ esp_err_t HearthHttpPost(const char* url, const uint8_t* body, size_t body_len,
 
 esp_err_t HearthPostUtterance(const char* hub_base, const uint8_t* wav,
                               size_t wav_bytes, char* json, size_t json_cap,
-                              uint32_t* stt_ms);
+                              uint32_t* stt_ms, const char* client_id = nullptr);
 
 esp_err_t HearthGetPoster(const char* hub_base, char* json, size_t json_cap);
 

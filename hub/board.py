@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from datetime import datetime, timedelta
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ STATUSES = ("open", "done")
 NOTE_KINDS = ("do", "pack", "note")
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+MEAL_SLOTS = ("breakfast", "lunch", "dinner")
+MEAL_HOURS = {"breakfast": 8, "lunch": 13, "dinner": 19}
 
 
 def _now() -> str:
@@ -32,6 +35,8 @@ def empty_board() -> dict:
             "last_utterance": "",
             "last_ack": "",
             "ack_at": 0.0,
+            "agent_ack": "",
+            "agent_ack_run_id": "",
             "updated_at": "",
             "next_id": 1,
         },
@@ -67,6 +72,17 @@ def _list_key(name: str) -> str:
     if name in ("do", "pack"):
         return "notes"
     return name
+
+
+def _item_reference(text: str, list_name: str) -> str:
+    """Normalize spoken list nouns without changing the stored item text."""
+    value = (text or "").strip().casefold().strip(" .,!?")
+    value = re.sub(r"^(?:the|a|an)\s+", "", value)
+    if list_name == "notes":
+        value = re.sub(r"\s+(?:note|notes|reminder|reminders)$", "", value)
+    else:
+        value = re.sub(r"\s+(?:buy|shopping)\s+item$", "", value)
+    return value.strip()
 
 
 def parse_hhmm(raw: str) -> str:
@@ -238,38 +254,71 @@ class Board:
                 return item
         return None
 
+    def toggle(self, list_name: str, *, item_id: str) -> dict | None:
+        key = _list_key(list_name)
+        if key not in ITEM_LISTS or not item_id:
+            raise ValueError("toggle needs a list and item id")
+        for item in self.data[key]:
+            if item.get("id") == item_id:
+                item["status"] = "open" if item.get("status") == "done" else "done"
+                self.save()
+                return item
+        return None
+
+    def clear_list(self, list_name: str) -> int:
+        key = _list_key(list_name)
+        if key not in ITEM_LISTS:
+            raise ValueError("cannot clear that list")
+        count = len(self.data[key])
+        if count:
+            self.data[key] = []
+            self.save()
+        return count
+
     def delete(self, list_name: str, *, item_id: str = "", text: str = "") -> dict | None:
         key = _list_key(list_name)
         if key not in ITEM_LISTS:
             raise ValueError(f"cannot delete {list_name}")
-        needle = (text or "").strip().casefold()
-        kept: list[dict] = []
-        removed = None
-        for item in self.data[key]:
-            if removed is None and (
-                (item_id and item.get("id") == item_id)
-                or (needle and needle in (item.get("text") or "").casefold())
-            ):
-                removed = item
-                continue
-            kept.append(item)
+        rows = self.data[key]
+        removed = next((row for row in rows if row.get("id") == item_id), None) if item_id else None
+        if removed is None and not item_id and text:
+            needle = _item_reference(text, key)
+            exact = [row for row in rows if (row.get("text") or "").casefold() == needle]
+            matches = exact or [row for row in rows if needle and needle in (row.get("text") or "").casefold()]
+            if len(matches) == 1:
+                removed = matches[0]
         if removed is not None:
-            self.data[key] = kept
+            self.data[key] = [row for row in rows if row is not removed]
             self.save()
         return removed
 
-    def set_menu(self, weekday: str, meal: str, notes: str = "") -> dict:
+    def delete_menu(self, *, key: str) -> dict | None:
+        day, separator, slot = (key or "").partition("/")
+        if not separator or day not in WEEKDAYS or slot not in MEAL_SLOTS:
+            raise ValueError("menu delete needs weekday/slot")
+        for row in self.data["menu"]:
+            if row.get("weekday") == day and row.get("slot", "dinner") == slot:
+                self.data["menu"] = [item for item in self.data["menu"] if item is not row]
+                self.save()
+                return row
+        return None
+
+    def set_menu(self, weekday: str, meal: str, notes: str = "", slot: str = "dinner") -> dict:
         day = weekday.strip().casefold()[:3]
         if day not in WEEKDAYS:
             raise ValueError("weekday must be mon..sun")
+        slot = slot.strip().casefold()
+        if slot not in MEAL_SLOTS:
+            raise ValueError("meal slot must be breakfast, lunch, or dinner")
         entry = None
         for row in self.data["menu"]:
-            if (row.get("weekday") or "").casefold()[:3] == day:
+            if (row.get("weekday") or "").casefold()[:3] == day and row.get("slot", "dinner") == slot:
                 entry = row
                 break
         if entry is None:
-            entry = {"weekday": day, "meal": "", "notes": ""}
+            entry = {"weekday": day, "slot": slot, "meal": "", "notes": ""}
             self.data["menu"].append(entry)
+        entry["slot"] = slot
         entry["meal"] = meal.strip()
         if notes:
             entry["notes"] = notes.strip()
@@ -279,6 +328,11 @@ class Board:
     def set_alarm(self, hhmm: str, text: str = "") -> dict:
         stamp = parse_hhmm(hhmm)
         label = (text or "").strip()
+        now = datetime.now().astimezone()
+        hour, minute = map(int, stamp.split(":"))
+        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if due <= now:
+            due += timedelta(days=1)
         for row in self.data["alarms"]:
             if (row.get("hhmm") == stamp and not label) or (
                 label and (row.get("text") or "").casefold() == label.casefold()
@@ -287,6 +341,7 @@ class Board:
                 if label:
                     row["text"] = label
                 row["enabled"] = True
+                row["due_at"] = due.isoformat()
                 self.save()
                 return row
         item = {
@@ -294,6 +349,7 @@ class Board:
             "hhmm": stamp,
             "text": label,
             "enabled": True,
+            "due_at": due.isoformat(),
         }
         self.data["alarms"].append(item)
         self.save()
@@ -323,15 +379,37 @@ class Board:
         return removed
 
     def next_alarm(self, now_hm: str | None = None) -> dict | None:
-        rows = [a for a in self.data.get("alarms") or [] if a.get("enabled", True)]
-        if not rows:
-            return None
-        rows = sorted(rows, key=lambda a: a.get("hhmm") or "")
-        now_hm = now_hm or time.strftime("%H:%M")
-        for row in rows:
-            if (row.get("hhmm") or "") >= now_hm:
-                return row
-        return rows[0]
+        now = datetime.now().astimezone()
+        if now_hm:
+            hour, minute = map(int, now_hm.split(":"))
+            now = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        candidates = []
+        expired = []
+        for row in self.data.get("alarms") or []:
+            if not row.get("enabled", True):
+                continue
+            raw = row.get("due_at")
+            if raw:
+                try:
+                    due = datetime.fromisoformat(raw)
+                except ValueError:
+                    expired.append(row)
+                    continue
+                if due.tzinfo is None:
+                    due = due.astimezone()
+            else:
+                # Old time-only alarms were never dated. Keep only future ones today.
+                hour, minute = map(int, parse_hhmm(row.get("hhmm") or "").split(":"))
+                due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                row["due_at"] = due.isoformat()
+            if due + timedelta(seconds=70) < now:
+                expired.append(row)
+            else:
+                candidates.append((due, row))
+        if expired:
+            self.data["alarms"] = [row for row in self.data["alarms"] if row not in expired]
+            self.save()
+        return min(candidates, key=lambda pair: pair[0])[1] if candidates else None
 
     def set_weather(self, line: str, kind: str = "") -> None:
         self.data["weather"]["line"] = line.strip()
@@ -362,23 +440,32 @@ class Board:
                     source=raw.get("source") or source,
                     kind=raw.get("kind") or "",
                 )
-                results.append({"op": "add", "item": item})
+                results.append({"op": "add", "list": _list_key(raw.get("list") or "buy"), "item": item})
             elif op == "complete":
                 item = self.complete(
                     raw.get("list") or "buy",
                     item_id=raw.get("id") or "",
                     text=raw.get("text") or "",
                 )
-                results.append({"op": "complete", "item": item})
+                results.append({"op": "complete", "list": _list_key(raw.get("list") or "buy"), "item": item})
+            elif op == "toggle":
+                item = self.toggle(raw.get("list") or "notes", item_id=raw.get("id") or "")
+                results.append({"op": "toggle", "list": _list_key(raw.get("list") or "notes"), "item": item})
+            elif op == "clear_list":
+                count = self.clear_list(raw.get("list") or "notes")
+                results.append({"op": "clear_list", "list": _list_key(raw.get("list") or "notes"), "count": count})
             elif op == "delete":
                 item = self.delete(
                     raw.get("list") or "notes",
                     item_id=raw.get("id") or "",
                     text=raw.get("text") or "",
                 )
-                results.append({"op": "delete", "item": item})
+                results.append({"op": "delete", "list": _list_key(raw.get("list") or "notes"), "item": item})
+            elif op == "delete_menu":
+                item = self.delete_menu(key=raw.get("key") or "")
+                results.append({"op": "delete_menu", "item": item})
             elif op == "set_menu":
-                entry = self.set_menu(raw.get("weekday") or "", raw.get("meal") or "")
+                entry = self.set_menu(raw.get("weekday") or "", raw.get("meal") or "", slot=raw.get("slot") or "dinner")
                 results.append({"op": "set_menu", "item": entry})
             elif op == "set_alarm":
                 item = self.set_alarm(raw.get("hhmm") or raw.get("text") or "", raw.get("text") or "")
@@ -394,19 +481,17 @@ class Board:
                 raise ValueError(f"unknown op {op!r}")
         return results
 
+
     def tonight_meal(self, weekday: str | None = None) -> str:
         day = (weekday or time.strftime("%a")).casefold()[:3]
         for row in self.data["menu"]:
-            if (row.get("weekday") or "").casefold()[:3] == day:
+            if (row.get("weekday") or "").casefold()[:3] == day and row.get("slot", "dinner") == "dinner":
                 return (row.get("meal") or "").strip()
         return ""
 
     def today_lines(self, *, limit: int = 6) -> list[str]:
         lines: list[str] = []
-        meal = self.tonight_meal()
-        if meal:
-            lines.append(meal)
-        for item in self.open_items("notes")[:2]:
+        for item in self.open_items("notes")[:4]:
             if len(lines) >= limit:
                 break
             lines.append(item_label(item))
@@ -414,6 +499,9 @@ class Board:
             if len(lines) >= limit:
                 break
             lines.append(item_label(item))
+        meal = self.tonight_meal()
+        if meal and len(lines) < limit:
+            lines.append(meal)
         return lines[:limit]
 
     def counts(self) -> dict[str, int]:
@@ -421,6 +509,46 @@ class Board:
             "buy": len(self.open_items("buy")),
             "notes": len(self.open_items("notes")),
         }
+
+
+def ack_for_results(results: list[dict]) -> tuple[bool, str]:
+    """Only acknowledge changes confirmed by the canonical board."""
+    if not results:
+        return True, "Heard, nothing to file."
+    failures = [result for result in results if result.get("op") in
+                ("complete", "toggle", "delete", "delete_menu", "clear_alarm")
+                and result.get("item") is None]
+    successes = len(results) - len(failures)
+    if failures:
+        if successes:
+            return False, f"Filed {successes} changes; {len(failures)} could not be matched."
+        return False, "No matching board item found."
+    if len(results) > 1:
+        return True, f"Filed {len(results)} changes."
+    result = results[0]
+    op = result["op"]
+    item = result.get("item") or {}
+    text = item.get("text") or ""
+    if op == "add":
+        return True, f"Added {text} to {'Buy' if result.get('list') == 'buy' else 'Notes'}."
+    if op == "complete":
+        return True, f"Done: {text}."
+    if op == "toggle":
+        return True, f"{'Checked' if item.get('status') == 'done' else 'Unchecked'} {text}."
+    if op == "delete":
+        return True, f"Removed {text}."
+    if op == "delete_menu":
+        return True, f"Removed {item.get('weekday', '').title()} {item.get('slot', 'dinner')}."
+    if op == "clear_list":
+        count = result.get("count") or 0
+        return True, f"Deleted {count} {result.get('list') or 'notes'} items."
+    if op == "set_menu":
+        return True, f"{item.get('weekday', '').title()} {item.get('slot', 'dinner')}: {item.get('meal', '')}."
+    if op == "set_alarm":
+        return True, f"Alarm at {item.get('hhmm', '')}."
+    if op == "clear_alarm":
+        return True, "Alarm cleared."
+    return True, "Filed."
 
 
 def json_load(path: Path) -> Any:
@@ -465,6 +593,7 @@ _KIND_FROM_WORD = (
     ("drizzle", "rain"),
     ("shower", "rain"),
     ("rain", "rain"),
+    ("partly", "partly"),
     ("overcast", "cloud"),
     ("cloud", "cloud"),
     ("fair", "sun"),
@@ -503,7 +632,10 @@ def item_label(item: dict) -> str:
     return f"{text}  {suffix}".strip() if suffix else text
 
 
-def poster_from_board(board: Board, *, pending: bool = False) -> dict[str, Any]:
+def poster_from_board(
+    board: Board, *, pending: bool = False, buy_offset: int = 0, notes_offset: int = 0,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     """Flat JSON the firmware can pick apart with HearthJsonString."""
     date = time.strftime("%a ") + str(int(time.strftime("%d"))) + time.strftime(" %b")
     weather = (board.data.get("weather") or {}).get("line") or ""
@@ -511,44 +643,77 @@ def poster_from_board(board: Board, *, pending: bool = False) -> dict[str, Any]:
     meal = board.tonight_meal()
     counts = board.counts()
     meta = board.data.get("meta") or {}
+    now = now or datetime.now().astimezone()
     ack = meta.get("last_ack") or ""
     ack_at = float(meta.get("ack_at") or 0.0)
     if ack and (ack_at <= 0.0 or time.time() - ack_at > 20.0):
         ack = ""
-    buy = [item_label(item) for item in board.open_items("buy")[:8]]
-    notes = [item_label(item) for item in board.open_items("notes")[:8]]
+    buy_offset = max(0, min(int(buy_offset), max(0, len(board.data["buy"]) - 1)))
+    notes_offset = max(0, min(int(notes_offset), max(0, len(board.data["notes"]) - 1)))
+    buy = board.data["buy"][buy_offset:buy_offset + 12]
+    notes = board.data["notes"][notes_offset:notes_offset + 12]
     meals = {
-        (row.get("weekday") or "").casefold()[:3]: (row.get("meal") or "").strip()
+        ((row.get("weekday") or "").casefold()[:3], row.get("slot", "dinner")): (row.get("meal") or "").strip()
         for row in board.data.get("menu") or []
     }
-    today_key = time.strftime("%a").casefold()[:3]
     alarm = board.next_alarm()
     payload: dict[str, Any] = {
         "date": date,
+        "clock": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "weather": weather,
         "wx": kind,
         "meal": meal,
         "ack": ack,
         "pending": "1" if pending else "0",
+        "heard": meta.get("last_utterance") or "",
         "n_buy": str(counts["buy"]),
         "n_notes": str(counts["notes"]),
+        "r_buy": str(len(board.data["buy"])),
+        "r_notes": str(len(board.data["notes"])),
+        "buy_offset": str(buy_offset),
+        "notes_offset": str(notes_offset),
     }
     if alarm:
         hhmm = alarm.get("hhmm") or ""
         label = "  ".join(p for p in (hhmm, alarm.get("text") or "") if p)
         payload["alarm"] = label
+        payload["aid"] = alarm.get("id") or ""
+        payload["adate"] = (alarm.get("due_at") or "")[:10]
         if ":" in hhmm:
             hour, minute = hhmm.split(":", 1)
             payload["ahh"] = str(int(hour))
             payload["amm"] = str(int(minute))
     else:
         payload["alarm"] = ""
-    for i in range(8):
-        payload[f"b{i}"] = buy[i] if i < len(buy) else ""
-    for i in range(8):
-        payload[f"n{i}"] = notes[i] if i < len(notes) else ""
-    for i, (key, label) in enumerate(zip(WEEKDAYS, WEEKDAY_LABELS)):
-        mark = "*" if key == today_key else " "
-        dish = meals.get(key, "")
-        payload[f"m{i}"] = f"{mark}{label}  {dish}".rstrip()
+        payload["aid"] = ""
+        payload["adate"] = ""
+    for i in range(12):
+        for prefix, rows in (("b", buy), ("n", notes)):
+            row = rows[i] if i < len(rows) else None
+            payload[f"{prefix}{i}"] = item_label(row) if row else ""
+            payload[f"{prefix}id{i}"] = row.get("id", "") if row else ""
+            payload[f"{prefix}s{i}"] = row.get("status", "open") if row else ""
+    open_buy = board.open_items("buy")[:2]
+    for i in range(2):
+        payload[f"pb{i}"] = item_label(open_buy[i]) if i < len(open_buy) else ""
+    menu_lines: list[tuple[str, str, str]] = []
+    for key in WEEKDAYS:
+        for slot in MEAL_SLOTS:
+            dish = meals.get((key, slot), "")
+            if dish:
+                menu_lines.append((f"{key}/{slot}", f"{slot.title()}: {dish}", dish))
+    for i in range(21):
+        payload[f"m{i}"] = menu_lines[i][1] if i < len(menu_lines) else ""
+        payload[f"mid{i}"] = menu_lines[i][0] if i < len(menu_lines) else ""
+    def next_occurrence(row: tuple[str, str, str]) -> datetime:
+        day, slot = row[0].split("/")
+        delta = (WEEKDAYS.index(day) - now.weekday()) % 7
+        due = (now + timedelta(days=delta)).replace(
+            hour=MEAL_HOURS[slot], minute=0, second=0, microsecond=0
+        )
+        return due if due > now else due + timedelta(days=7)
+
+    upcoming = sorted(menu_lines, key=next_occurrence)
+    for i in range(2):
+        payload[f"pm{i}"] = upcoming[i][1] if i < len(upcoming) else ""
     return payload

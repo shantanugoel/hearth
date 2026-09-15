@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shlex
 import subprocess
 
@@ -15,33 +16,38 @@ class HermesError(RuntimeError):
     pass
 
 
-def _prompt(text: str, source: str) -> str:
+def _prompt(text: str, source: str, board_snapshot: dict) -> str:
     return (
         "The kitchen fridge heard this.\n"
         f"source: {source}\n"
-        f"utterance: {text}\n\n"
-        "File it into the household board using the hearth-board skill. "
-        "Split mixed sentences. Tag a person only when named. "
-        "Completions and deletions are first-class. Notes holds chores, "
-        "bags, and leftover thoughts. Alarms use set_alarm/clear_alarm. "
+        f"utterance: {text}\n"
+        f"board_snapshot: {json.dumps(board_snapshot, ensure_ascii=False, separators=(',', ':'))}\n\n"
+        "Use the hearth-board skill and native Hearth MCP tools to file this. "
+        "Get the fresh board with hearth_get_board before changing it. "
+        "Prefer an exact item ID for a deletion or completion. Split mixed sentences. "
+        "Read tool results; if ok is false or item is null, retry with the correct ID. "
+        "Never claim an item changed unless a tool confirms it. "
         "Do not invent chores, meals, shops, or alarms. "
-        "Reply with one short sentence for the e-paper, nothing else."
+        "Reply with one short sentence for the e-paper."
     )
 
 
 def file_utterance(
     text: str,
     source: str = "fridge",
+    board_snapshot: dict | None = None,
     *,
     ssh: str = DEFAULT_SSH,
     timeout_s: float = 90.0,
 ) -> str:
     if not text.strip():
         return ""
+    run_id = str((board_snapshot or {}).get("meta", {}).get("file_run_id") or "")
     remote = (
         'export PATH="$HOME/.local/bin:$PATH"; '
+        f"export HEARTH_RUN_ID={shlex.quote(run_id)}; "
         f"{DEFAULT_PROFILE} --yolo --skills hearth-board "
-        f"-z {shlex.quote(_prompt(text, source))}"
+        f"-z {shlex.quote(_prompt(text, source, board_snapshot or {}))}"
     )
     try:
         completed = subprocess.run(

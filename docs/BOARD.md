@@ -1,7 +1,7 @@
 # Board, Today, Buy, Menu, Notes
 
-Kitchen posters on the fridge. The hub owns JSON. Its command router files
-simple speech; Hermes files requests that need language interpretation.
+Kitchen posters on the fridge. The hub owns JSON; Hermes interprets every
+spoken command and calls the Hearth board tools to make changes.
 The NOTE4 paints from a flat poster. The final UI is high-contrast 1-bit so
 text stays crisp and status changes can use fast partial refreshes.
 
@@ -9,27 +9,36 @@ text stays crisp and status changes can use fast partial refreshes.
 
 | Screen | Job |
 |---|---|
-| Today | Date + weather icon, tonight's meal, Buy/Notes peeks, next alarm |
-| Buy | Open shopping list, owner suffix when named |
-| Menu | Mon–Sun dinners, today marked |
-| Notes | Chores, bags, leftover thoughts |
+| Today | Date, weather, alarm, prominent selectable notes, split footer with two Buy and two upcoming Menu items |
+| Buy | Shopping rows with checked and unchecked status |
+| Menu | Full weekday headings with Breakfast, Lunch, and Dinner meals below each day |
+| Notes | Chores, bags, thoughts with checked and unchecked status |
 | Pulse | Battery, Wi-Fi, last heard phrase, hub status, alarm |
 
 - A labeled top rail uses house **Today**, `$` **Buy**, fork-and-knife **Menu**,
   paper **Notes**, and signal **Pulse**. The active poster is reversed in black.
 - **Hold OK:** listen until release, cap 12 s. A bottom status bar says
   `listening`, then `sending`, then `filing`. The poster stays on screen.
-- After STT the fridge returns to buttons. Hermes files in the background;
-  the bar stays until `/v1/poster` says `pending=0`, then shows the ack for
-  15 seconds. A new recording cannot start while that filing is active.
-- **UP / DOWN:** wrap Today → Buy → Menu → Notes → Pulse while filing.
+- Recording and network transfer run on separate device tasks. Page buttons
+  remain usable during `sending` and `filing`, and up to four new recordings
+  can wait locally. The hub accepts each WAV immediately and processes up to
+  eight queued recordings in order through STT and Hermes. The bar shows the
+  queue while `/v1/poster` reports `pending=1`, then the verified ack.
+- **Short OK:** cycle Today → Buy → Menu → Notes → Pulse.
+- **UP / DOWN:** move or scroll the selected item within the current page.
+- **Long UP (~0.9 s):** check or uncheck the selected note or Buy item. Today selects notes.
+- **Long DOWN (~0.9 s):** delete the selected note, Buy item, or Menu entry by its ID/key.
   ~20 s idle snaps to Today (the status bar stays if still filing).
-- Simple additions, completions, deletions, dinner changes, and alarms take a
-  deterministic fast path on the hub. `remove oat milk`, `delete oat milk`, and
-  `take oat milk off the shopping list` never fall through to an add. Mixed or
-  ambiguous speech still goes to Hermes.
+- Every spoken command goes to the dedicated Hermes agent. The hub supplies a
+  fresh board snapshot with stable IDs, while the Hearth MCP tools expose read,
+  add, complete, toggle, delete, meals, and alarms. The hub acknowledges only
+  changes confirmed by board operation results; an unmatched delete never says
+  it removed an item.
 - Named people become an owner suffix. Unnamed items stay household-owned.
-- **Alarm:** “set an alarm for 7 for school” stores `07:00`. The NOTE4 chimes on the ES8311 at that minute. Short OK dismisses.
+- **Menu:** each weekday has a full heading and its Breakfast, Lunch, and
+  Dinner entries underneath. Today’s footer shows the next two scheduled
+  meals after the current local time, using meal labels such as `Lunch: dal`.
+- **Alarm:** “set an alarm for 7 for school” schedules the next 07:00 as a one-shot. The hub syncs the NOTE4 RTC from its local clock; the ES8311 plays a louder multi-second chime at the dated minute, then the alarm is cleared. A recording that overlaps the alarm can delay the chime by up to 70 seconds.
 
 ## Board
 
@@ -38,37 +47,38 @@ Hermes chat memory is not the source of truth.
 
 ```
 GET  /v1/board
-POST /v1/board/apply   {"ops":[...], "source":"fridge", "ack":"..."}
+POST /v1/board/apply   {"ops":[...], "source":"fridge", "run_id":"..."}
 GET  /v1/poster        flat keys the firmware can parse
-POST /v1/utterance      STT + fast command, or agent filing in background
+POST /v1/utterance      validate WAV, return request_id immediately; queued STT + agent filing
 ```
 
-Apply ops: `add` / `complete` / `delete` on `buy|notes`, plus `set_menu`,
+Apply ops: `add` / `complete` / `toggle` / `delete` / `clear_list` on `buy|notes`, plus `set_menu`, `delete_menu`,
 `set_alarm`, `clear_alarm`. Old `do`/`pack` list names still file into Notes.
 
 Weather is a hub Open-Meteo one-liner plus a `wx` token (`sun` / `cloud` /
-`rain` / `storm` / `snow` / `fog`) for the icon. Coords live in gitignored
+`partly` / `rain` / `storm` / `snow` / `fog`) for the icon. Coords live in gitignored
 `.env` (`HEARTH_LAT` / `HEARTH_LON`).
 
 ## Hermes
 
-The NOTE4 talks only to the hub. Hermes stays behind SSH on `hermes-incus`.
-The hub handles audio, weather, storage, and obvious commands; the dedicated
-Hermes profile handles language that actually needs interpretation. This is
-faster than sending every phrase to an agent and keeps the ESP32 thin.
+The NOTE4 talks only to the hub. Hermes stays on `hermes-incus`. The hub handles
+STT intake, weather, storage, the poster, and verified operation results.
+Hermes receives every transcript and the current board, then calls the native
+Hearth MCP tools agentically. A small stdio MCP bridge on the Hermes profile
+exposes the board API as 11 named tools.
 
-Profile alias `hearth` on `hermes-incus`. Install SOUL + skill:
+Profile alias `hearth` on `hermes-incus`. Install SOUL, skill, and MCP tools:
 
 ```bash
 ./tools/install_hearth_profile.sh
 ```
 
-The remaining phrases use a fresh oneshot (`hearth --yolo --skills
+Every phrase uses a fresh oneshot (`hearth --yolo --skills
 hearth-board -z '…'`). The installer pins only this profile to
 `openai-codex / gpt-5.6-luna` with reasoning disabled; default and sibling
-Hermes profiles are untouched. `POST /v1/utterance` returns simple-command
-results immediately. Agent-routed phrases return after STT with `pending=1`;
-the device keeps the UI live and polls `/v1/poster` every 2 s for the ack.
+Hermes profiles are untouched. `POST /v1/utterance` returns `request_id` and
+queue depth immediately. The device keeps the UI live and polls `/v1/poster`
+every 2 s for the transcript, queue depth, and ack.
 
 ## Hub
 
@@ -79,9 +89,13 @@ python3 -m hub --host 0.0.0.0 --port 8790
 `--no-hermes` transcribes only. `--mock-hermes` files with a tiny heuristic
 (for tests, not the kitchen).
 
-`POST /v1/utterance` still takes 16 kHz PCM16 WAV. The JSON also carries
-`ack`, `pending`, `date`, `weather`, `wx`, `meal`, `n_buy` / `n_notes`,
-`b0`…`b7`, `n0`…`n7`, `m0`…`m6`, `alarm`, `ahh`, `amm`.
+`POST /v1/utterance` still takes 16 kHz PCM16 WAV and accepts an
+`X-Hearth-Request-Id` header to avoid duplicating a retried upload. The
+`GET /v1/poster` JSON carries `heard`, `queue`, `ack`, `pending`, `date`,
+`weather`, `wx`, `meal`, `n_buy` / `n_notes`,
+`b0`…`b11`, `n0`…`n11` with IDs and status, `m0`…`m20` with menu keys,
+`pb0`/`pb1` and `pm0`/`pm1` for Today’s split footer,
+`alarm`, `aid`, `adate`, `ahh`, `amm`, and `clock` for RTC sync.
 
 ## Simulator
 

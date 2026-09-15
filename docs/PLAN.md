@@ -23,7 +23,7 @@ Do not flash NOTE4C images. Back up the full 16 MiB factory flash before the fir
 | Second surface | Fridge + the same Hermes profile on Telegram / WhatsApp / CLI. |
 | Orientation | Landscape 400 × 300 on the fridge. |
 | Today weather | v1 Today always includes a weather one-liner, not optional. |
-| Language routing | Obvious single commands are deterministic on the hub; Hermes handles mixed and ambiguous language. |
+| Language routing | Every spoken command is interpreted by Hermes using native Hearth board tools. The hub accepts recordings and stores verified results. |
 | Agent profile | Only `hearth` uses `openai-codex / gpt-5.6-luna` with reasoning off. Other Hermes profiles keep their settings. |
 | Visual mode | Production posters use crisp 1-bit ink. The 16-gray driver remains available for imagery experiments. |
 
@@ -50,21 +50,23 @@ The fridge is one mouth. Chat is another. Both write the same board.
 
 | Screen | Job | Layout |
 |---|---|---|
-| **Today** | Kitchen glance | Date with weather icon on the right, tonight’s meal as the headline, then a peek of Buy and Notes. A labeled tab rail sits on top. |
-| **Buy** | Shopping | Clean list. Named owners as a small suffix. |
-| **Menu** | Week of dinners | Mon–Sun, today marked. One line per day. |
-| **Notes** | Household working memory | Chores, bags, leftover thoughts. Owner suffix when named. |
+| **Today** | Kitchen glance | Date and weather, then the selected notes list; two Buy and two upcoming Menu items share a split footer. |
+| **Buy** | Shopping | Selectable list with checkboxes. Named owners as a suffix. |
+| **Menu** | Week of meals | Full weekday headings with Breakfast, Lunch, Dinner entries in order. |
+| **Notes** | Household working memory | Selectable chores, bags, thoughts; checkboxes. |
 | **Pulse** | Device health | Battery, Wi-Fi, last heard phrase, alarm, hub status. Last page, not daily. |
 
-`today[]` is **derived**, not a fifth dump of todos: weather + tonight’s meal + a few Notes + a few top Buy items.
+`today[]` is **derived**, not a fifth dump of todos: weather + prominently displayed Notes + a small Buy/Menu footer.
 
 ### Navigation
 
 Three physical buttons, no nested settings on-device.
 
 - **Front, press-and-hold:** speak until release. Always. Every screen.
-- **Up / Down:** previous / next screen. Wrap. After ~20 s idle, snap back to Today.
-- **Short front (no hold):** confirm the highlighted row on list screens (check off). Defer if it fights with speak; voice completion is enough (“we got milk”).
+- **Short front (no hold):** next page, wrapping after Pulse.
+- **Up / Down:** move through items on the current page. After ~20 s idle, snap back to Today.
+- **Long Up:** check or uncheck the selected note or Buy item.
+- **Long Down:** delete the selected board item by exact ID/key.
 
 Wi-Fi provisioning once via a setup AP. The hub owns config after that.
 
@@ -97,9 +99,9 @@ Canonical store: a **board file** (YAML or SQLite) owned by the hub, mutated by 
 ```text
 board
   buy[]     text, optional owner, optional due/when, status, source
-  menu[]    weekday, meal, optional notes
+  menu[]    weekday, slot (breakfast/lunch/dinner), meal, optional notes
   notes[]   chores, bags, leftover thoughts; optional owner/when/kind
-  alarms[]  hhmm, optional text
+  alarms[]  one-shot due_at, hhmm, optional text
   today[]   derived, not stored as a fifth list
   weather   current condition + high/low, refreshed by the hub
   meta      last_utterance, last_ack, updated_at
@@ -189,7 +191,7 @@ None that block starting firmware bring-up. Weather source (hub fetch vs Hermes 
 4. Menu, Do, Pack, owners-from-speech. Telegram on the same session is deferred
    (voice is the mouth for now).
 5. Final poster polish: high-contrast layout, idle snap-back, quiet visual acks,
-   deterministic fast commands, and continuous weather + agenda refresh.
+   Hermes board tools, queued voice calls, and weather + agenda refresh.
 
 Steps 0–5 are implemented. Telegram remains a separate second-surface project;
 it does not block the fridge appliance.

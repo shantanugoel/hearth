@@ -20,8 +20,8 @@ namespace {
 constexpr char kTag[] = "zectrix_board";
 constexpr TickType_t kButtonPoll = pdMS_TO_TICKS(20);
 constexpr TickType_t kButtonDebounce = pdMS_TO_TICKS(40);
-constexpr TickType_t kOkLongPress = pdMS_TO_TICKS(1500);
-constexpr TickType_t kDownLongPress = pdMS_TO_TICKS(3000);
+constexpr TickType_t kOkLongPress = pdMS_TO_TICKS(220);
+constexpr TickType_t kNavLongPress = pdMS_TO_TICKS(900);
 constexpr adc_channel_t kBatteryAdcChannel = ADC_CHANNEL_3;
 
 struct ButtonDefinition {
@@ -36,8 +36,8 @@ constexpr std::array<ButtonDefinition, 3> kButtons = {{
 }};
 
 TickType_t LongPressTicks(ZectrixButton button) {
-    if (button == ZectrixButton::kDown) {
-        return kDownLongPress;
+    if (button == ZectrixButton::kDown || button == ZectrixButton::kUp) {
+        return kNavLongPress;
     }
     if (button == ZectrixButton::kOk) {
         return kOkLongPress;
@@ -46,8 +46,8 @@ TickType_t LongPressTicks(ZectrixButton button) {
 }
 
 bool ClickOnPress(ZectrixButton button) {
-    return button == ZectrixButton::kUp ||
-           button == ZectrixButton::kDown;
+    (void)button;
+    return false;  // Wait for release so a hold never moves the selection.
 }
 
 }  // namespace

@@ -57,6 +57,14 @@ def try_fast_command(board: Board, utterance: str, source: str = "fridge") -> st
     if re.search(r"\b(?:and|then|also)\b", text, re.IGNORECASE):
         return None
 
+    clear_notes = re.fullmatch(
+        r"(?:please\s+)?(?:delete|remove|clear|erase)\s+all\s+(?:of\s+)?(?:the\s+)?notes?(?:\s+list)?(?:\s+please)?[.!?]?",
+        text, re.IGNORECASE,
+    )
+    if clear_notes:
+        count = board.clear_list("notes")
+        return f"Deleted {count} notes." if count else "There are no notes to delete."
+
     remove_patterns = (
         r"^(?:please\s+)?(?:remove|delete|forget)\s+(.+?)(?:\s+from\s+(?:the\s+)?(?:buy|shopping|notes?|reminders?)(?:\s+list)?)?$",
         r"^(?:please\s+)?take\s+(.+?)\s+off(?:\s+(?:the\s+)?(?:buy|shopping|notes?|reminders?)?\s*(?:list|board)?)?$",
@@ -118,14 +126,19 @@ def try_fast_command(board: Board, utterance: str, source: str = "fridge") -> st
         return f"Alarm at {alarm['hhmm']}{suffix}."
 
     menu = re.match(
-        r"^(?:please\s+)?(?:dinner|tonight(?:'s\s+dinner)?)\s+(?:is|will\s+be)\s+(.+)$",
+        r"^(?:please\s+)?(?:(mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)'?s?\s+)?"
+        r"(breakfast|lunch|dinner|tonight(?:'s\s+dinner)?)\s+(?:is|will\s+be)\s+(.+)$",
         text,
         re.IGNORECASE,
     )
     if menu:
-        meal = _target(menu.group(1))
-        board.set_menu(time.strftime("%a").casefold()[:3], meal)
-        return f"Tonight: {meal}."
+        day = (menu.group(1) or time.strftime("%a")).casefold()[:3]
+        slot = menu.group(2).casefold()
+        if slot.startswith("tonight"):
+            slot = "dinner"
+        meal = _target(menu.group(3))
+        board.set_menu(day, meal, slot=slot)
+        return f"Tonight: {meal}." if slot == "dinner" and not menu.group(1) else f"{day.title()} {slot}: {meal}."
 
     add_buy_patterns = (
         r"^(?:please\s+)?add\s+(.+?)\s+to\s+(?:the\s+)?(?:buy|shopping)(?:\s+list)?$",

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import struct
 import threading
+import time
 import unittest
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -79,8 +80,12 @@ class HubTests(unittest.TestCase):
             headers={"Content-Type": "audio/wav"},
         )
         payload = json.loads(urlopen(req, timeout=2).read())
-        self.assertEqual(payload["text"], "we are out of oat milk")
+        self.assertTrue(payload["accepted"])
+        self.assertTrue(payload["request_id"])
         self.assertEqual(self.state.utterances, 1)
+        deadline = time.time() + 2
+        while not self.seen and time.time() < deadline:
+            time.sleep(0.01)
         self.assertTrue(self.seen)
 
     def test_rejects_wrong_rate(self) -> None:
@@ -96,6 +101,53 @@ class HubTests(unittest.TestCase):
             self.fail("expected HTTPError")
         except Exception as exc:
             self.assertEqual(getattr(exc, "code", None), 400)
+
+    def test_upload_retry_id_is_queued_once(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        calls: list[int] = []
+        def slow(wav: bytes) -> dict:
+            calls.append(len(wav))
+            started.set()
+            self.assertTrue(release.wait(3))
+            return {"text": "test", "model": "mock"}
+        self.state.transcribe_fn = slow
+        def post() -> dict:
+            req = Request(f"http://127.0.0.1:{self.port}/v1/utterance",
+                          data=silence_wav(),
+                          headers={"Content-Type": "audio/wav",
+                                   "X-Hearth-Request-Id": "fixed-upload-id"})
+            return json.loads(urlopen(req, timeout=1).read())
+        first = post()
+        self.assertTrue(started.wait(1))
+        duplicate = post()
+        self.assertEqual(first["request_id"], duplicate["request_id"])
+        self.assertEqual(self.state.utterances, 1)
+        release.set()
+        self.state.jobs.join()
+        self.assertEqual(len(calls), 1)
+
+    def test_full_voice_queue_rejects_before_accepting_more_work(self) -> None:
+        release = threading.Event()
+        def slow(wav: bytes) -> dict:
+            self.assertTrue(release.wait(3))
+            return {"text": "test", "model": "mock"}
+        self.state.transcribe_fn = slow
+        for i in range(8):
+            req = Request(f"http://127.0.0.1:{self.port}/v1/utterance",
+                          data=silence_wav(),
+                          headers={"Content-Type": "audio/wav",
+                                   "X-Hearth-Request-Id": f"queue-{i}"})
+            self.assertTrue(json.loads(urlopen(req, timeout=1).read())["accepted"])
+        self.assertEqual(self.state.queue_depth, 8)
+        req = Request(f"http://127.0.0.1:{self.port}/v1/utterance",
+                      data=silence_wav(), headers={"Content-Type": "audio/wav"})
+        with self.assertRaises(Exception) as rejected:
+            urlopen(req, timeout=1)
+        self.assertEqual(getattr(rejected.exception, "code", None), 429)
+        release.set()
+        self.state.jobs.join()
+        self.assertEqual(self.state.utterances, 8)
 
 
 if __name__ == "__main__":

@@ -66,6 +66,10 @@ TOOLS = [
         "hhmm": prop("Time such as 07:30 or 7am"),
         "text": prop("Optional alarm purpose"),
     }, ["hhmm"]),
+    tool("hearth_set_timer", "Set a one-shot alarm after a duration. Use for both '30 second timer' and '30 second alarm'; never turn a duration into a guessed clock time.", {
+        "seconds": prop("Duration in whole seconds, for example 30, 120, or 3600", "integer"),
+        "text": prop("Optional purpose; leave blank for Timer"),
+    }, ["seconds"]),
     tool("hearth_clear_alarm", "Cancel one alarm by its exact ID, time, or purpose.", {
         "id": prop("Exact alarm ID"), "hhmm": prop("Alarm time"),
         "text": prop("Alarm purpose"),
@@ -80,6 +84,7 @@ OPS = {
     "hearth_toggle": "toggle", "hearth_delete": "delete",
     "hearth_clear_list": "clear_list", "hearth_set_meal": "set_menu",
     "hearth_delete_meal": "delete_menu", "hearth_set_alarm": "set_alarm",
+    "hearth_set_timer": "set_timer",
     "hearth_clear_alarm": "clear_alarm",
 }
 
@@ -127,7 +132,7 @@ def handle(frame: dict) -> None:
         respond(message_id, {
             "protocolVersion": version,
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "hearth-board", "version": "0.4.0"},
+            "serverInfo": {"name": "hearth-board", "version": "0.5.0"},
         })
     elif method == "ping":
         respond(message_id, {})

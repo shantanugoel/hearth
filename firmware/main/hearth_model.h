@@ -80,6 +80,7 @@ struct HearthState {
     char clock[20] = {};
     int alarm_h = -1;
     int alarm_m = -1;
+    int alarm_s = 0;
     bool alarming = false;
 };
 
@@ -143,6 +144,7 @@ inline void HearthApplyPoster(HearthState* state, const char* json) {
     state->alarm_date[0] = '\0';
     state->alarm_h = -1;
     state->alarm_m = -1;
+    state->alarm_s = 0;
     HearthCopy(state->n_buy, sizeof(state->n_buy), "0");
     HearthCopy(state->n_notes, sizeof(state->n_notes), "0");
     for (int i = 0; i < 12; ++i) {
@@ -185,6 +187,7 @@ inline void HearthApplyPoster(HearthState* state, const char* json) {
     HearthJsonString(json, "adate", state->alarm_date, sizeof(state->alarm_date));
     char hour[8] = {};
     char minute[8] = {};
+    char second[8] = {};
     if (HearthJsonString(json, "ahh", hour, sizeof(hour)) &&
         HearthJsonString(json, "amm", minute, sizeof(minute)) &&
         hour[0] >= '0' && hour[0] <= '9') {
@@ -200,6 +203,11 @@ inline void HearthApplyPoster(HearthState* state, const char* json) {
             state->alarm_h = -1;
             state->alarm_m = -1;
         }
+    }
+    if (HearthJsonString(json, "asec", second, sizeof(second)) &&
+        second[0] >= '0' && second[0] <= '9') {
+        state->alarm_s = std::atoi(second);
+        if (state->alarm_s > 59) state->alarm_s = 0;
     }
     for (int i = 0; i < 12; ++i) {
         char key[16];

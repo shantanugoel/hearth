@@ -28,7 +28,7 @@
 namespace {
 
 constexpr const char* kTag = "hearth";
-constexpr const char* kFirmwareVersion = "v0.9.0-hearth";
+constexpr const char* kFirmwareVersion = "v0.9.1-hearth";
 constexpr TickType_t kPollTick = pdMS_TO_TICKS(50);
 constexpr uint32_t kMaxClipMs = 12000;
 constexpr TickType_t kIdleSnap = pdMS_TO_TICKS(20000);
@@ -68,7 +68,7 @@ TickType_t g_last_input = 0;
 TickType_t g_last_fetch = 0;
 TickType_t g_ack_shown = 0;
 TickType_t g_last_alarm_check = 0;
-int g_rung_minute = -1;
+char g_rung_alarm[48] = {};
 char g_synced_alarm[48] = {};
 QueueHandle_t g_net_jobs = nullptr;
 QueueHandle_t g_async_results = nullptr;
@@ -130,8 +130,8 @@ void SyncRtcAlarm() {
         return;
     }
     char identity[48];
-    std::snprintf(identity, sizeof(identity), "%s/%s/%02d:%02d", g_state.alarm_id,
-                  g_state.alarm_date, g_state.alarm_h, g_state.alarm_m);
+    std::snprintf(identity, sizeof(identity), "%s/%s/%02d:%02d:%02d", g_state.alarm_id,
+                  g_state.alarm_date, g_state.alarm_h, g_state.alarm_m, g_state.alarm_s);
     if (std::strcmp(identity, g_synced_alarm) == 0) return;
     tm now = {};
     if (!rtc->GetTime(now)) {
@@ -196,7 +196,7 @@ void CheckAlarm() {
     if (g_recording) return;  // The speaker and microphone share the codec.
     if (g_state.alarm_h < 0 || g_state.alarm[0] == '\0') {
         g_state.alarming = false;
-        g_rung_minute = -1;
+        g_rung_alarm[0] = '\0';
         return;
     }
     RtcPcf8563* rtc = g_board.rtc();
@@ -204,7 +204,6 @@ void CheckAlarm() {
     if (rtc == nullptr || !rtc->GetTime(now)) {
         return;
     }
-    const int minute = now.tm_hour * 60 + now.tm_min;
     int year, month, day;
     if (std::sscanf(g_state.alarm_date, "%d-%d-%d", &year, &month, &day) != 3)
         return;
@@ -214,7 +213,7 @@ void CheckAlarm() {
     due.tm_mday = day;
     due.tm_hour = g_state.alarm_h;
     due.tm_min = g_state.alarm_m;
-    due.tm_sec = 0;
+    due.tm_sec = g_state.alarm_s;
     const double elapsed = std::difftime(std::mktime(&now), std::mktime(&due));
     if (elapsed > 70) {
         ESP_LOGI(kTag, "expired local alarm %s", g_state.alarm_date);
@@ -225,8 +224,11 @@ void CheckAlarm() {
         return;
     }
     if (elapsed >= 0 && elapsed <= 70) {
-        if (g_rung_minute != minute) {
-            g_rung_minute = minute;
+        char identity[48];
+        std::snprintf(identity, sizeof(identity), "%s/%s/%02d:%02d:%02d", g_state.alarm_id,
+                      g_state.alarm_date, g_state.alarm_h, g_state.alarm_m, g_state.alarm_s);
+        if (std::strcmp(g_rung_alarm, identity) != 0) {
+            HearthCopy(g_rung_alarm, sizeof(g_rung_alarm), identity);
             g_state.alarming = true;
             const esp_err_t played = HearthPlayAlarm(&g_board);
             g_state.alarming = false;
@@ -247,9 +249,6 @@ void CheckAlarm() {
         }
     } else {
         g_state.alarming = false;
-        if (g_rung_minute != minute) {
-            g_rung_minute = -1;
-        }
     }
 }
 

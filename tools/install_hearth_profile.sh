@@ -3,6 +3,11 @@
 # Does not make hearth the sticky default profile.
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+if [ -f "$ROOT/.env" ]; then
+  set -a
+  . "$ROOT/.env"
+  set +a
+fi
 HOST="${HEARTH_HERMES_SSH:-hermes-incus}"
 DEST="${HEARTH_HERMES_HOME:-/home/hermes/.hermes/profiles/hearth}"
 HUB_URL="${HEARTH_HUB_URL:-http://192.168.2.89:8790}"

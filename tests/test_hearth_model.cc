@@ -57,6 +57,7 @@ int main() {
     assert(std::strcmp(s.wx, "sun") == 0);
     assert(s.alarm_h == 7);
     assert(s.alarm_m == 0);
+    assert(s.alarm_s == 0);
     assert(HearthPending(s));
     s.voice = HearthVoice::kFiling;
     assert(HearthBusy(s));
@@ -66,6 +67,12 @@ int main() {
     HearthApplyPoster(&empty_alarm,
                       "{\"date\":\"Mon\",\"ahh\":\"\",\"amm\":\"\"}");
     assert(empty_alarm.alarm_h < 0);
+    HearthState timer;
+    HearthApplyPoster(&timer,
+                     "{\"alarm\":\"12:04:30 Timer\",\"ahh\":\"12\",\"amm\":\"4\",\"asec\":\"30\"}");
+    assert(timer.alarm_h == 12);
+    assert(timer.alarm_m == 4);
+    assert(timer.alarm_s == 30);
 
     char dst[8];
     HearthCopy(dst, sizeof(dst), "overlong-input");

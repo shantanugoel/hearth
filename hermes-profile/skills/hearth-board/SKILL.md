@@ -1,7 +1,7 @@
 ---
 name: hearth-board
 description: File fridge speech into Buy, Notes, Menu, and Alarms.
-version: 0.4.0
+version: 0.5.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -32,7 +32,8 @@ hub still handles storage, audio intake, and the NOTE4 poster.
    exact board `id` for completion or deletion.
 3. Call the relevant native MCP tools: `hearth_add`, `hearth_complete`,
    `hearth_toggle`, `hearth_delete`, `hearth_clear_list`, `hearth_set_meal`,
-   `hearth_delete_meal`, `hearth_set_alarm`, `hearth_clear_alarm`, or
+   `hearth_delete_meal`, `hearth_set_alarm`, `hearth_set_timer`,
+   `hearth_clear_alarm`, or
    `hearth_apply` for several changes.
 4. Inspect the tool result. `ok:false` or `item:null` means the requested
    change did not happen. Read the board again and retry with the right ID.
@@ -56,6 +57,9 @@ hub still handles storage, audio intake, and the NOTE4 poster.
 - "We got X" / "X is done" → `complete`, never a new open item.
 - "Take X off" / "remove X" / "delete X" / "forget X" → `delete`.
 - "Set an alarm for 7" / "wake us at 7:30 for school" → `set_alarm`.
+- "30 second timer" / "30 second alarm" / "set a timer for two minutes" →
+  `hearth_set_timer` with `seconds` 30 or 120. A duration is a relative alarm,
+  even when the speaker calls it a timer. Do not guess the current clock time.
 - "Cancel the alarm" / "no alarm" → `clear_alarm`.
 - Do not add weather. The hub fetches weather.
 - If a tool reports no match, do not say "removed" or "done".

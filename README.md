@@ -1,72 +1,63 @@
 # Hearth
 
-Household working memory on a ZECTRIX NOTE4. Speak at the fridge; a dedicated
-Hermes profile files what you said onto a kitchen poster. The e-paper holds
-what the family needs to see without unlocking a phone.
+Hearth turns a ZECTRIX NOTE4 into a shared household memory board. Speak at the
+fridge, and the e-paper shows the resulting notes, shopping list, meal plan,
+weather, and alarms. A dedicated Hermes agent reads the current board and uses
+Hearth tools to file each request; the hub keeps the board and sends updates to
+the device.
 
-This repository is the firmware, hub, and tools. The product plan is
-[docs/PLAN.md](docs/PLAN.md).
+![Today screen with notes and Buy/Menu preview](docs/img/01-today.png)
 
-## Status
+- **Today:** prominent notes, the next two Buy items and upcoming meals, local
+  weather, and the next alarm.
+- **Buy and Notes:** shopping, chores, packing, and reminders with owners,
+  check marks, and voice or button deletion.
+- **Menu:** breakfast, lunch, and dinner under each weekday.
+- **Alarms and timers:** say “alarm at 7 for school” or “30 second timer.” Both
+  ring once on the NOTE4 and disappear after firing.
+- **Responsive recording:** hold the front button to speak. Upload and filing
+  happen in the background, so pages remain usable and more requests can queue.
 
-- Step 0: factory flash dump and restore playbook. The 16 MiB as-found image is **not** in git. See [docs/FACTORY_FLASH.md](docs/FACTORY_FLASH.md).
-- Step 1: ESP-IDF bring-up (display, buttons, power-hold, Wi-Fi scan, sleep). See [docs/BRINGUP.md](docs/BRINGUP.md).
-- Step 2: hold-OK voice clip → hub STT → transcript on **Heard**. See [docs/VOICE.md](docs/VOICE.md).
-- Step 3: `hearth` profile files a hub board; **Today** / **Buy** posters. See [docs/BOARD.md](docs/BOARD.md).
-- Step 4: **Menu**, unified **Notes** (Do + Pack), owners-from-speech, Pulse.
-  Telegram deferred. See [docs/BOARD.md](docs/BOARD.md).
-- Step 5: Hermes-first command filing through native board tools, weather/agenda refresh, idle return,
-  quiet visual acknowledgements, and the final high-contrast poster system.
-- Kitchen posters: labeled top tabs, **Notes**, a weekday Menu, queued voice
-  requests with responsive buttons, louder one-shot alarm, and agentic Hearth
-  board tools. Firmware `v0.9.0-hearth`.
+| Menu | Notes |
+|---|---|
+| ![Weekday meal plan](docs/img/03-menu.png) | ![Checkable household notes](docs/img/04-notes.png) |
 
-## Hub
+## Flash and use
 
-```bash
-python3 -m hub --host 0.0.0.0 --port 8790
-```
+You need a **NOTE4 Developer Kit** (ESP32-S3 N16R8, not NOTE4C), ESP-IDF v6.1,
+a reachable Hermes host named `hermes-incus`, and a local speech-to-text service.
+The hub and NOTE4 must share a network.
 
-Copy `.env.example` to `.env` (gitignored). That file holds the local STT URL
-and Open-Meteo coords (`HEARTH_LAT` / `HEARTH_LON`). The sample is Whitefield,
-Bengaluru. The NOTE4 posts `http://<hub>:8790/v1/utterance`.
-Install the kitchen profile files with `./tools/install_hearth_profile.sh`.
+1. Copy `.env.example` to `.env` and set the STT URL, Hermes host, hub LAN URL,
+   and weather coordinates. Copy
+   `firmware/sdkconfig.defaults.local.example` to
+   `firmware/sdkconfig.defaults.local`, then set Wi-Fi and the same hub LAN URL.
+2. Install the dedicated Hermes profile and start the hub:
 
-## Hardware
+   ```bash
+   ./tools/install_hearth_profile.sh
+   python3 -m hub --host 0.0.0.0 --port 8790
+   ```
 
-Monochrome NOTE4 Developer Kit, PCB V1.0, ESP32-S3 N16R8. Do not flash NOTE4C
-images. Device identity for this unit: [docs/hardware/DEVICE.md](docs/hardware/DEVICE.md).
+3. Connect the NOTE4 by USB and flash:
 
-## Simulator
+   ```bash
+   ./tools/flash_hearth.sh clean /dev/ttyACM0
+   ```
 
-```bash
-make -C sim run
-```
+   `clean` adds no sample data. A fresh hub board starts empty; reflashing keeps
+   your existing board. For a showcase with shopping, all note kinds, a full
+   week of meals, and an alarm, use `./tools/flash_hearth.sh demo /dev/ttyACM0`.
+   Demo replaces the current hub board and first saves it under `backups/`.
+   Weather comes from the hub's configured location.
 
-## Firmware
+Short-click the **front button** to cycle Today, Buy, Menu, Notes, and Pulse.
+Click **up/down** to move through items; hold **up** to check or uncheck the
+selected item, or hold **down** to delete it. Hold the **front button** while
+speaking, then release to send the recording.
 
-```bash
-./tools/idf.sh set-target esp32s3
-./tools/idf.sh build
-./tools/idf.sh -p /dev/ttyACM0 flash monitor
-```
+Wi-Fi and hub settings can also be changed over the 115200-baud USB console
+with `hearth-set` and `hearth-save`; see [device setup](docs/VOICE.md).
+For factory image backup or restore, see [factory flash guide](docs/FACTORY_FLASH.md).
 
-Flashing replaces the as-found image. Restore is documented in
-[docs/FACTORY_FLASH.md](docs/FACTORY_FLASH.md).
-
-## Factory dump
-
-```bash
-python3 tools/note4_flash.py info
-python3 tools/note4_flash.py dump
-python3 tools/note4_flash.py verify
-python3 tools/note4_flash.py restore --dry-run
-```
-
-Restore-write is destructive and requires
-`--i-know-this-overwrites-the-device`. Do not run it unless you intend to put
-the factory image back.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+MIT licensed; see [LICENSE](LICENSE).

@@ -355,6 +355,25 @@ class Board:
         self.save()
         return item
 
+    def set_timer(self, seconds: int, text: str = "") -> dict:
+        """A relative one-shot alarm, down to the second."""
+        if isinstance(seconds, bool) or not isinstance(seconds, int) or not 1 <= seconds <= 86400:
+            raise ValueError("timer seconds must be an integer from 1 to 86400")
+        due = datetime.now().astimezone() + timedelta(seconds=seconds)
+        if due.microsecond:
+            due = due.replace(microsecond=0) + timedelta(seconds=1)
+        item = {
+            "id": self._next_id("a"),
+            "hhmm": due.strftime("%H:%M"),
+            "text": (text or "").strip() or "Timer",
+            "enabled": True,
+            "due_at": due.isoformat(),
+            "duration_seconds": seconds,
+        }
+        self.data["alarms"].append(item)
+        self.save()
+        return item
+
     def clear_alarm(self, *, item_id: str = "", text: str = "", hhmm: str = "") -> dict | None:
         needle = (text or "").strip().casefold()
         stamp = parse_hhmm(hhmm) if hhmm else ""
@@ -470,6 +489,9 @@ class Board:
             elif op == "set_alarm":
                 item = self.set_alarm(raw.get("hhmm") or raw.get("text") or "", raw.get("text") or "")
                 results.append({"op": "set_alarm", "item": item})
+            elif op == "set_timer":
+                item = self.set_timer(raw.get("seconds"), raw.get("text") or "")
+                results.append({"op": "set_timer", "item": item})
             elif op == "clear_alarm":
                 item = self.clear_alarm(
                     item_id=raw.get("id") or "",
@@ -546,6 +568,10 @@ def ack_for_results(results: list[dict]) -> tuple[bool, str]:
         return True, f"{item.get('weekday', '').title()} {item.get('slot', 'dinner')}: {item.get('meal', '')}."
     if op == "set_alarm":
         return True, f"Alarm at {item.get('hhmm', '')}."
+    if op == "set_timer":
+        seconds = item.get("duration_seconds") or 0
+        amount = f"{seconds // 60} minute{'s' if seconds != 60 else ''}" if seconds % 60 == 0 else f"{seconds} second{'s' if seconds != 1 else ''}"
+        return True, f"Alarm in {amount}."
     if op == "clear_alarm":
         return True, "Alarm cleared."
     return True, "Filed."
@@ -675,7 +701,10 @@ def poster_from_board(
     }
     if alarm:
         hhmm = alarm.get("hhmm") or ""
-        label = "  ".join(p for p in (hhmm, alarm.get("text") or "") if p)
+        due_at = alarm.get("due_at") or ""
+        second = due_at[17:19] if len(due_at) >= 19 else "00"
+        display_time = f"{hhmm}:{second}" if alarm.get("duration_seconds") else hhmm
+        label = "  ".join(p for p in (display_time, alarm.get("text") or "") if p)
         payload["alarm"] = label
         payload["aid"] = alarm.get("id") or ""
         payload["adate"] = (alarm.get("due_at") or "")[:10]
@@ -683,6 +712,7 @@ def poster_from_board(
             hour, minute = hhmm.split(":", 1)
             payload["ahh"] = str(int(hour))
             payload["amm"] = str(int(minute))
+            payload["asec"] = str(int(second))
     else:
         payload["alarm"] = ""
         payload["aid"] = ""

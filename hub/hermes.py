@@ -25,6 +25,8 @@ def _prompt(text: str, source: str, board_snapshot: dict) -> str:
         "Use the hearth-board skill and native Hearth MCP tools to file this. "
         "Get the fresh board with hearth_get_board before changing it. "
         "Prefer an exact item ID for a deletion or completion. Split mixed sentences. "
+        "For a duration such as '30 second timer' or '30 second alarm', call "
+        "hearth_set_timer with the duration in seconds. "
         "Read tool results; if ok is false or item is null, retry with the correct ID. "
         "Never claim an item changed unless a tool confirms it. "
         "Do not invent chores, meals, shops, or alarms. "

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import sys
 import tempfile
 import threading
@@ -21,6 +22,7 @@ from hub.commands import try_fast_command  # noqa: E402
 from hub.hermes import HermesError  # noqa: E402
 from hub.server import HubState, make_server  # noqa: E402
 from hub.wavutil import wrap_pcm16  # noqa: E402
+from tools.load_demo import demo_ops  # noqa: E402
 
 
 def silence_wav(ms: int = 400) -> bytes:
@@ -186,6 +188,41 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(poster_from_board(self.board)["alarm"], "")
         self.board.load()
         self.assertEqual(self.board.data["alarms"], [])
+
+    def test_relative_timer_is_second_precise_one_shot_alarm(self) -> None:
+        before = datetime.now().astimezone()
+        result = self.board.apply([{"op": "set_timer", "seconds": 30}])
+        after = datetime.now().astimezone()
+        self.assertEqual(ack_for_results(result), (True, "Alarm in 30 seconds."))
+        alarm = result[0]["item"]
+        due = datetime.fromisoformat(alarm["due_at"])
+        self.assertGreaterEqual(due, before + timedelta(seconds=30))
+        self.assertLessEqual(due, after + timedelta(seconds=31))
+        poster = poster_from_board(self.board)
+        self.assertEqual(poster["asec"], str(due.second))
+        self.assertIn(due.strftime("%H:%M:%S"), poster["alarm"])
+        self.assertEqual(poster["aid"], alarm["id"])
+        with self.assertRaises(ValueError):
+            self.board.set_timer(0)
+        with self.assertRaises(ValueError):
+            self.board.set_timer("30")
+
+    def test_demo_board_covers_each_item_and_meal_type(self) -> None:
+        self.board.add("buy", "real shopping")
+        self.board.add("notes", "real note")
+        self.board.set_menu("mon", "real dinner")
+        self.board.set_alarm("08:00", "real alarm")
+        existing = self.board.snapshot()
+        results = self.board.apply(demo_ops(existing), source="demo")
+        self.assertTrue(ack_for_results(results)[0])
+        self.assertEqual(len(self.board.data["buy"]), 10)
+        self.assertEqual(len(self.board.data["notes"]), 10)
+        self.assertEqual({row["kind"] for row in self.board.data["notes"]}, {"do", "pack", "note"})
+        self.assertEqual(len(self.board.data["menu"]), 21)
+        self.assertEqual(len(self.board.data["alarms"]), 1)
+        self.assertFalse(any(row["text"].startswith("real") for row in self.board.data["buy"] + self.board.data["notes"]))
+        self.assertEqual(sum(row["status"] == "done" for row in self.board.data["buy"]), 2)
+        self.assertEqual(sum(row["status"] == "done" for row in self.board.data["notes"]), 2)
 
     def test_all_meal_slots(self) -> None:
         day = time.strftime("%a").casefold()[:3]
@@ -359,6 +396,19 @@ class HubBoardTests(unittest.TestCase):
         payload = json.loads(urlopen(req, timeout=2).read())
         self.assertTrue(payload["ok"])
         self.assertEqual(json.loads(urlopen(f"http://127.0.0.1:{self.port}/v1/poster").read())["n_buy"], "0")
+
+    def test_native_hermes_duration_tool_sets_alarm(self) -> None:
+        spec = importlib.util.spec_from_file_location("hearth_mcp", ROOT / "hermes-profile/hearth_mcp.py")
+        self.assertIsNotNone(spec)
+        bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge)
+        bridge.HUB = f"http://127.0.0.1:{self.port}"
+        result = bridge.call("hearth_set_timer", {"seconds": 30})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["ack"], "Alarm in 30 seconds.")
+        self.assertEqual(self.board.data["alarms"][0]["duration_seconds"], 30)
+        self.assertEqual(json.loads(urlopen(f"http://127.0.0.1:{self.port}/v1/poster").read())["aid"],
+                         self.board.data["alarms"][0]["id"])
 
     def test_apply_delete(self) -> None:
         self.board.add("notes", "plumber Thursday")

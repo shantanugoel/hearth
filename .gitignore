@@ -2,6 +2,7 @@
 backups/*.bin
 backups/*.img
 backups/*.sha256
+backups/board-before-demo-*.json
 !backups/.gitkeep
 
 # ESP-IDF generated. Commit sdkconfig.defaults and dependencies.lock.

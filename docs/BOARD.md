@@ -38,7 +38,7 @@ text stays crisp and status changes can use fast partial refreshes.
 - **Menu:** each weekday has a full heading and its Breakfast, Lunch, and
   Dinner entries underneath. Today’s footer shows the next two scheduled
   meals after the current local time, using meal labels such as `Lunch: dal`.
-- **Alarm:** “set an alarm for 7 for school” schedules the next 07:00 as a one-shot. The hub syncs the NOTE4 RTC from its local clock; the ES8311 plays a louder multi-second chime at the dated minute, then the alarm is cleared. A recording that overlaps the alarm can delay the chime by up to 70 seconds.
+- **Alarm/timer:** “set an alarm for 7 for school” schedules the next 07:00; “30 second alarm” and “30 second timer” both schedule a dated, second-precise one-shot. The hub syncs the NOTE4 RTC from its local clock; the ES8311 plays a louder multi-second chime at the due time, then the alarm is cleared. A recording that overlaps the alarm can delay the chime by up to 70 seconds.
 
 ## Board
 
@@ -53,7 +53,7 @@ POST /v1/utterance      validate WAV, return request_id immediately; queued STT 
 ```
 
 Apply ops: `add` / `complete` / `toggle` / `delete` / `clear_list` on `buy|notes`, plus `set_menu`, `delete_menu`,
-`set_alarm`, `clear_alarm`. Old `do`/`pack` list names still file into Notes.
+`set_alarm`, `set_timer`, `clear_alarm`. Old `do`/`pack` list names still file into Notes.
 
 Weather is a hub Open-Meteo one-liner plus a `wx` token (`sun` / `cloud` /
 `partly` / `rain` / `storm` / `snow` / `fog`) for the icon. Coords live in gitignored
@@ -65,7 +65,7 @@ The NOTE4 talks only to the hub. Hermes stays on `hermes-incus`. The hub handles
 STT intake, weather, storage, the poster, and verified operation results.
 Hermes receives every transcript and the current board, then calls the native
 Hearth MCP tools agentically. A small stdio MCP bridge on the Hermes profile
-exposes the board API as 11 named tools.
+exposes the board API as 12 named tools.
 
 Profile alias `hearth` on `hermes-incus`. Install SOUL, skill, and MCP tools:
 
@@ -95,7 +95,7 @@ python3 -m hub --host 0.0.0.0 --port 8790
 `weather`, `wx`, `meal`, `n_buy` / `n_notes`,
 `b0`…`b11`, `n0`…`n11` with IDs and status, `m0`…`m20` with menu keys,
 `pb0`/`pb1` and `pm0`/`pm1` for Today’s split footer,
-`alarm`, `aid`, `adate`, `ahh`, `amm`, and `clock` for RTC sync.
+`alarm`, `aid`, `adate`, `ahh`, `amm`, `asec`, and `clock` for RTC sync.
 
 ## Simulator
 

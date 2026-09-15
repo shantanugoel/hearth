@@ -136,7 +136,7 @@ HearthState MakeToday() {
     std::snprintf(s.hub, sizeof(s.hub), "http://192.168.2.89:8790");
     std::snprintf(s.transcript, sizeof(s.transcript),
                   "we are out of oat milk");
-    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.9.0-hearth");
+    std::snprintf(s.note, sizeof(s.note), "HEARTH v0.9.1-hearth");
     std::snprintf(s.date, sizeof(s.date), "Tue 15 Sep");
     std::snprintf(s.weather, sizeof(s.weather), "31C  partly cloudy  21-31");
     std::snprintf(s.wx, sizeof(s.wx), "partly");

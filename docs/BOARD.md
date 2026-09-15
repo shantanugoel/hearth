@@ -78,7 +78,8 @@ hearth-board -z '…'`). The installer pins only this profile to
 `openai-codex / gpt-5.6-luna` with reasoning disabled; default and sibling
 Hermes profiles are untouched. `POST /v1/utterance` returns `request_id` and
 queue depth immediately. The device keeps the UI live and polls `/v1/poster`
-every 2 s for the transcript, queue depth, and ack.
+every 2 s while filing and every 10 s while idle for the transcript, queue
+depth, alarms, and ack.
 
 ## Hub
 

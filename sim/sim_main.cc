@@ -130,10 +130,10 @@ HearthState MakeToday() {
     s.charging = true;
     s.wifi_connected = true;
     s.rssi = -48;
-    std::snprintf(s.ssid, sizeof(s.ssid), "orbital-5-iot");
-    std::snprintf(s.ip, sizeof(s.ip), "192.168.2.40");
-    std::snprintf(s.wifi_status, sizeof(s.wifi_status), "orbital-5-iot  -48 dBm");
-    std::snprintf(s.hub, sizeof(s.hub), "http://192.168.2.89:8790");
+    std::snprintf(s.ssid, sizeof(s.ssid), "Hearth-demo");
+    std::snprintf(s.ip, sizeof(s.ip), "192.0.2.40");
+    std::snprintf(s.wifi_status, sizeof(s.wifi_status), "Hearth-demo  -48 dBm");
+    std::snprintf(s.hub, sizeof(s.hub), "http://hub.local:8790");
     std::snprintf(s.transcript, sizeof(s.transcript),
                   "we are out of oat milk");
     std::snprintf(s.note, sizeof(s.note), "HEARTH v0.9.1-hearth");

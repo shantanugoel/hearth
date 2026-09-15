@@ -61,20 +61,22 @@ Weather is a hub Open-Meteo one-liner plus a `wx` token (`sun` / `cloud` /
 
 ## Hermes
 
-The NOTE4 talks only to the hub. Hermes stays on `hermes-incus`. The hub handles
+The NOTE4 talks only to the hub. Hermes can run locally or on an SSH host. The hub handles
 STT intake, weather, storage, the poster, and verified operation results.
 Hermes receives every transcript and the current board, then calls the native
 Hearth MCP tools agentically. A small stdio MCP bridge on the Hermes profile
 exposes the board API as 12 named tools.
 
-Profile alias `hearth` on `hermes-incus`. Install SOUL, skill, and MCP tools:
+Install the dedicated `hearth` SOUL, skill, and MCP tools with the method and
+profile location configured in `.env`:
 
 ```bash
+./tools/install_hearth_profile.sh --dry-run
 ./tools/install_hearth_profile.sh
 ```
 
-Every phrase uses a fresh oneshot (`hearth --yolo --skills
-hearth-board -z '…'`). The installer pins only this profile to
+Every phrase uses a fresh one-shot with the configured Hermes command (for
+example, `hearth --yolo --skills hearth-board -z '…'`). The installer pins only this profile to
 `openai-codex / gpt-5.6-luna` with reasoning disabled; default and sibling
 Hermes profiles are untouched. `POST /v1/utterance` returns `request_id` and
 queue depth immediately. The device keeps the UI live and polls `/v1/poster`

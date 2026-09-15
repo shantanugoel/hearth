@@ -26,7 +26,7 @@ Wi-Fi STA uses Kconfig defaults, then NVS. Console on USB-Serial/JTAG:
 hearth> hearth-show
 hearth> hearth-set ssid <name>
 hearth> hearth-set pass <password>
-hearth> hearth-set hub http://192.168.2.89:8790
+hearth> hearth-set hub http://192.0.2.10:8790
 hearth> hearth-save
 hearth> hearth-reboot
 ```

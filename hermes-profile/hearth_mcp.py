@@ -13,7 +13,7 @@ import os
 import sys
 from urllib.request import Request, urlopen
 
-HUB = os.environ.get("HEARTH_HUB_URL", "http://192.168.2.89:8790").rstrip("/")
+HUB = os.environ.get("HEARTH_HUB_URL", "").rstrip("/")
 RUN_ID = os.environ.get("HEARTH_RUN_ID", "")
 
 
@@ -90,6 +90,8 @@ OPS = {
 
 
 def request(path: str, payload: dict | None = None) -> dict:
+    if not HUB:
+        raise ValueError("HEARTH_HUB_URL is required for the Hearth MCP bridge")
     body = json.dumps(payload).encode() if payload is not None else None
     req = Request(
         HUB + path, data=body,

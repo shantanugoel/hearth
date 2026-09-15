@@ -9,7 +9,7 @@ This document is the product and architecture plan. Build only after it is agree
 - Device: ZECTRIX NOTE4 (monochrome), ESP32-S3 N16R8, 4.2-inch 400 × 300 E Ink (SSD2683), 16 MB flash, 8 MB PSRAM.
 - Peripherals: front BOOT / Confirm (GPIO0), side Up (GPIO39), side Down / Power (GPIO18), ES8311 mic + speaker, NFC, PCF8563 RTC, 2000+ mAh battery, magnetic back, USB-C native USB (`/dev/ttyACM0` on this machine).
 - Connected as: Espressif USB JTAG/serial, serial `28:84:85:32:07:E0`.
-- Host: this machine. ESP-IDF v6.1 via EIM. Local STT/TTS already at `http://192.168.2.89:8080/v1` (qwen3-asr / kokoro). Hermes Agent installed at `~/.hermes`.
+- Host: an ESP-IDF v6.1 machine with reachable STT/TTS services and a local or SSH Hermes profile.
 
 Do not flash NOTE4C images. Back up the full 16 MiB factory flash before the first custom image.
 

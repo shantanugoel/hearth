@@ -31,5 +31,5 @@ CONFIG_LWIP_SO_RCVBUF=y
 # Hub is HTTP on the LAN. Skip TLS to keep the image small.
 CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=n
 
-# Hub URL is public on this LAN; SSID/password stay in sdkconfig.defaults.local.
-CONFIG_HEARTH_HUB_URL="http://192.168.2.89:8790"
+# Put the household hub URL in sdkconfig.defaults.local or set it over USB.
+CONFIG_HEARTH_HUB_URL=""

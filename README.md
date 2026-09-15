@@ -25,16 +25,19 @@ the device.
 ## Flash and use
 
 You need a **NOTE4 Developer Kit** (ESP32-S3 N16R8, not NOTE4C), ESP-IDF v6.1,
-a reachable Hermes host named `hermes-incus`, and a local speech-to-text service.
+Hermes on the hub machine or an SSH host, and a reachable speech-to-text service.
 The hub and NOTE4 must share a network.
 
-1. Copy `.env.example` to `.env` and set the STT URL, Hermes host, hub LAN URL,
-   and weather coordinates. Copy
+1. Copy `.env.example` to `.env` and set the STT URL, hub LAN URL, and weather
+   coordinates. Choose `HEARTH_HERMES_METHOD=local` or `ssh`; for SSH, set
+   `HEARTH_HERMES_SSH_HOST`. The profile directory and command used to select
+   the profile are also configurable there. Copy
    `firmware/sdkconfig.defaults.local.example` to
    `firmware/sdkconfig.defaults.local`, then set Wi-Fi and the same hub LAN URL.
-2. Install the dedicated Hermes profile and start the hub:
+2. Preview, install the dedicated Hermes profile, and start the hub:
 
    ```bash
+   ./tools/install_hearth_profile.sh --dry-run
    ./tools/install_hearth_profile.sh
    python3 -m hub --host 0.0.0.0 --port 8790
    ```

@@ -3,24 +3,97 @@
 # Does not make hearth the sticky default profile.
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-if [ -f "$ROOT/.env" ]; then
+ENV_FILE="${HEARTH_ENV_FILE:-$ROOT/.env}"
+if [ -f "$ENV_FILE" ]; then
   set -a
-  . "$ROOT/.env"
+  . "$ENV_FILE"
   set +a
 fi
-HOST="${HEARTH_HERMES_SSH:-hermes-incus}"
-DEST="${HEARTH_HERMES_HOME:-/home/hermes/.hermes/profiles/hearth}"
-HUB_URL="${HEARTH_HUB_URL:-http://192.168.2.89:8790}"
+HOST="${HEARTH_HERMES_SSH_HOST:-${HEARTH_HERMES_SSH:-}}"
+METHOD="${HEARTH_HERMES_METHOD:-}"
+if [ -z "$METHOD" ]; then
+  if [ -n "$HOST" ]; then METHOD=ssh; else METHOD=local; fi
+fi
+case "$METHOD" in
+  local) ;;
+  ssh) [ -n "$HOST" ] || { echo "Set HEARTH_HERMES_SSH_HOST for SSH installation" >&2; exit 2; } ;;
+  *) echo "HEARTH_HERMES_METHOD must be local or ssh" >&2; exit 2 ;;
+esac
+PROFILE="${HEARTH_HERMES_PROFILE:-hearth}"
+case "$PROFILE" in
+  ''|*[!A-Za-z0-9_-]*) echo "HEARTH_HERMES_PROFILE must be a simple name" >&2; exit 2 ;;
+esac
+HUB_URL="${HEARTH_HUB_URL:-}"
+[ -n "$HUB_URL" ] || { echo "Set HEARTH_HUB_URL in .env before installing" >&2; exit 2; }
+CLI_RAW="${HEARTH_HERMES_COMMAND:-$PROFILE}"
+CLI_PREFIX="$(python3 - "$CLI_RAW" <<'PY'
+import shlex
+import sys
+words = shlex.split(sys.argv[1])
+if not words:
+    raise SystemExit("HEARTH_HERMES_COMMAND cannot be empty")
+print(shlex.join(words))
+PY
+)"
+DEST="${HEARTH_HERMES_PROFILE_DIR:-${HEARTH_HERMES_HOME:-}}"
+if [ -n "$DEST" ]; then
+  case "$DEST" in
+    /*) ;;
+    *) echo "HEARTH_HERMES_PROFILE_DIR must be an absolute path" >&2; exit 2 ;;
+  esac
+fi
 
-ssh -o BatchMode=yes "$HOST" "mkdir -p '$DEST/skills/productivity/hearth-board' '$DEST/tools'"
-scp -q "$ROOT/hermes-profile/SOUL.md" "$HOST:$DEST/SOUL.md"
-scp -q "$ROOT/hermes-profile/skills/hearth-board/SKILL.md" \
-  "$HOST:$DEST/skills/productivity/hearth-board/SKILL.md"
-scp -q "$ROOT/hermes-profile/hearth_mcp.py" "$HOST:$DEST/tools/hearth_mcp.py"
-ssh -o BatchMode=yes "$HOST" "chmod 755 '$DEST/tools/hearth_mcp.py'; export PATH=\"\$HOME/.local/bin:\$PATH\"; if ! hearth mcp list | grep -q 'hearth-board'; then printf 'y\\n' | hearth mcp add hearth-board --command '$DEST/tools/hearth_mcp.py'; fi"
+if [ "${1:-}" = "--dry-run" ]; then
+  [ -n "$DEST" ] || DEST="<target-home>/.hermes/profiles/$PROFILE"
+  if [ "$METHOD" = ssh ]; then echo "method: ssh ($HOST)"; else echo "method: local"; fi
+  echo "profile directory: $DEST"
+  echo "Hermes command: $CLI_PREFIX"
+  echo "hub URL: $HUB_URL"
+  exit 0
+fi
+[ "$#" -eq 0 ] || { echo "Usage: $0 [--dry-run]" >&2; exit 2; }
+
+target_run() {
+  if [ "$METHOD" = ssh ]; then
+    ssh -o BatchMode=yes "$HOST" "$1"
+  else
+    sh -c "$1"
+  fi
+}
+
+target_copy() {
+  if [ "$METHOD" = ssh ]; then
+    scp -q "$1" "$HOST:$2"
+  else
+    cp "$1" "$2"
+  fi
+}
+
+shell_quote() {
+  python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$1"
+}
+
+if [ -z "$DEST" ]; then
+  TARGET_HOME="$(target_run 'printf "%s" "$HOME"')"
+  DEST="$TARGET_HOME/.hermes/profiles/$PROFILE"
+fi
+case "$DEST" in
+  /*) ;;
+  *) echo "HEARTH_HERMES_PROFILE_DIR must be an absolute path" >&2; exit 2 ;;
+esac
+DEST_Q="$(shell_quote "$DEST")"
+HUB_Q="$(shell_quote "$HUB_URL")"
+MCP_Q="$(shell_quote "$DEST/tools/hearth_mcp.py")"
+
+target_run "mkdir -p $(shell_quote "$DEST/skills/productivity/hearth-board") $(shell_quote "$DEST/tools")"
+target_copy "$ROOT/hermes-profile/SOUL.md" "$DEST/SOUL.md"
+target_copy "$ROOT/hermes-profile/skills/hearth-board/SKILL.md" \
+  "$DEST/skills/productivity/hearth-board/SKILL.md"
+target_copy "$ROOT/hermes-profile/hearth_mcp.py" "$DEST/tools/hearth_mcp.py"
+target_run "chmod 755 $MCP_Q; export PATH=\"\$HOME/.local/bin:\$PATH\"; if ! $CLI_PREFIX mcp list | grep -q 'hearth-board'; then printf 'y\\n' | $CLI_PREFIX mcp add hearth-board --command $MCP_Q; fi"
 
 # Disable bundled coding skills (leave the files) and publish the hub URL.
-ssh -o BatchMode=yes "$HOST" "python3 - '$DEST' '$HUB_URL'" <<'PY'
+target_run "python3 - $DEST_Q $HUB_Q" <<'PY'
 import sys
 import json
 from pathlib import Path
@@ -140,5 +213,4 @@ cfg.write_text(raw, encoding="utf-8")
 print("profile files ready")
 PY
 
-echo "installed hearth profile files on $HOST:$DEST"
-echo "hub url $HUB_URL (not the sticky default profile)"
+echo "installed Hearth profile files via $METHOD"

@@ -8,6 +8,9 @@ the device.
 
 ![Today screen with notes and Buy/Menu preview](docs/img/01-today.png)
 
+Screens from the current demo board, rendered by the host simulator using the
+firmware's canvas and screen code.
+
 - **Today:** prominent notes, the next two Buy items and upcoming meals, local
   weather, and the next alarm.
 - **Buy and Notes:** shopping, chores, packing, and reminders with owners,
@@ -18,9 +21,23 @@ the device.
 - **Responsive recording:** hold the front button to speak. Upload and filing
   happen in the background, so pages remain usable and more requests can queue.
 
-| Menu | Notes |
+| Buy | Menu |
 |---|---|
-| ![Weekday meal plan](docs/img/03-menu.png) | ![Checkable household notes](docs/img/04-notes.png) |
+| ![Demo shopping list with checked items](docs/img/02-buy.png) | ![Demo weekday meal plan](docs/img/03-menu.png) |
+
+| Notes | Pulse |
+|---|---|
+| ![Demo household notes with owners and check marks](docs/img/04-notes.png) | ![Device connection, battery, and last-heard status](docs/img/05-pulse.png) |
+
+Hold the front button to record; after release, the request files in the
+background and the board updates:
+
+| Listening | Filing | Updated |
+|---|---|---|
+| ![Listening status on Today](docs/img/06-listen.png) | ![Filing status on Today](docs/img/07-filing.png) | ![Buy list after voice removal](docs/img/08-removed.png) |
+
+See the [developer reel](promo/hearth-developer-reel.mp4) and its
+[voiceover transcript](promo/reel-transcript.md) for an animated walkthrough.
 
 ## Flash and use
 

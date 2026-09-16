@@ -25,6 +25,9 @@ sim/out/
 sim/out/hearth-sim
 *.pyc
 
+# Rebuildable reel frames and intermediate audio.
+promo/
+
 # Host test binaries
 tests/test_hearth_model
 

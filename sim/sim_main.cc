@@ -135,38 +135,54 @@ HearthState MakeToday() {
     std::snprintf(s.wifi_status, sizeof(s.wifi_status), "Hearth-demo  -48 dBm");
     std::snprintf(s.hub, sizeof(s.hub), "http://hub.local:8790");
     std::snprintf(s.transcript, sizeof(s.transcript),
-                  "we are out of oat milk");
+                  "add oat milk to the shopping list");
     std::snprintf(s.note, sizeof(s.note), "HEARTH v0.9.1-hearth");
-    std::snprintf(s.date, sizeof(s.date), "Tue 15 Sep");
+    std::snprintf(s.date, sizeof(s.date), "Wed 16 Sep");
     std::snprintf(s.weather, sizeof(s.weather), "31C  partly cloudy  21-31");
     std::snprintf(s.wx, sizeof(s.wx), "partly");
-    std::snprintf(s.meal, sizeof(s.meal), "pasta");
+    std::snprintf(s.meal, sizeof(s.meal), "Noodle soup");
     std::snprintf(s.ack, sizeof(s.ack), "Added oat milk to Buy.");
-    std::snprintf(s.n_buy, sizeof(s.n_buy), "4");
-    std::snprintf(s.n_notes, sizeof(s.n_notes), "2");
-    std::snprintf(s.buy[0], sizeof(s.buy[0]), "oat milk");
-    std::snprintf(s.buy[1], sizeof(s.buy[1]), "eggs");
-    std::snprintf(s.peek_buy[0], sizeof(s.peek_buy[0]), "oat milk");
-    std::snprintf(s.peek_buy[1], sizeof(s.peek_buy[1]), "eggs");
-    std::snprintf(s.peek_menu[0], sizeof(s.peek_menu[0]), "Breakfast: eggs");
-    std::snprintf(s.peek_menu[1], sizeof(s.peek_menu[1]), "Lunch: dal rice");
-    std::snprintf(s.notes[0], sizeof(s.notes[0]), "swim kit  Maya  Thursday");
-    std::snprintf(s.notes[1], sizeof(s.notes[1]), "leave bags by the door");
-    std::snprintf(s.notes[2], sizeof(s.notes[2]), "call school");
-    s.notes_done[1] = true;
-    std::snprintf(s.alarm, sizeof(s.alarm), "07:00 school");
+    std::snprintf(s.n_buy, sizeof(s.n_buy), "8");
+    std::snprintf(s.n_notes, sizeof(s.n_notes), "8");
+    constexpr const char* kBuy[] = {"Oat milk", "Eggs", "Bananas", "Rice", "Tomatoes",
+                                    "Coffee beans", "Dish soap", "Fresh flowers", "Bread", "Olive oil"};
+    for (int i = 0; i < 10; ++i)
+        std::snprintf(s.buy[i], sizeof(s.buy[i]), "%s", kBuy[i]);
+    s.buy_done[1] = true;
+    s.buy_done[8] = true;
+    std::snprintf(s.peek_buy[0], sizeof(s.peek_buy[0]), "Oat milk");
+    std::snprintf(s.peek_buy[1], sizeof(s.peek_buy[1]), "Bananas");
+    std::snprintf(s.peek_menu[0], sizeof(s.peek_menu[0]), "Breakfast: Oats and banana");
+    std::snprintf(s.peek_menu[1], sizeof(s.peek_menu[1]), "Lunch: Chickpea bowls");
+    constexpr const char* kNotes[] = {
+        "Swim kit  Maya  Thursday", "Call school  Arun  Today", "Leave bags by the door",
+        "Water the plants  Saturday", "Library books  Maya  Friday",
+        "Grandma visits on Sunday  Sunday", "Book dentist appointment  Arun  Next week",
+        "Rain jackets  Tomorrow", "Spare key is in the drawer", "Put recycling out  Wednesday"};
+    for (int i = 0; i < 10; ++i)
+        std::snprintf(s.notes[i], sizeof(s.notes[i]), "%s", kNotes[i]);
+    s.notes_done[2] = true;
+    s.notes_done[9] = true;
+    std::snprintf(s.alarm, sizeof(s.alarm), "07:00 School morning");
     s.alarm_h = 7;
     s.alarm_m = 0;
-    std::snprintf(s.menu[0], sizeof(s.menu[0]), "Breakfast: eggs");
-    std::snprintf(s.menu_id[0], sizeof(s.menu_id[0]), "tue/breakfast");
-    std::snprintf(s.menu[1], sizeof(s.menu[1]), "Lunch: dal rice");
-    std::snprintf(s.menu_id[1], sizeof(s.menu_id[1]), "tue/lunch");
-    std::snprintf(s.menu[2], sizeof(s.menu[2]), "Dinner: pasta");
-    std::snprintf(s.menu_id[2], sizeof(s.menu_id[2]), "tue/dinner");
-    std::snprintf(s.menu[3], sizeof(s.menu[3]), "Dinner: pasta");
-    std::snprintf(s.menu_id[3], sizeof(s.menu_id[3]), "wed/dinner");
-    std::snprintf(s.menu[4], sizeof(s.menu[4]), "Lunch: lemon rice");
-    std::snprintf(s.menu_id[4], sizeof(s.menu_id[4]), "thu/lunch");
+    constexpr const char* kDays[] = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"};
+    constexpr const char* kMeals[][3] = {
+        {"Yogurt and berries", "Dal rice", "Pasta and salad"},
+        {"Toast and eggs", "Veg wraps", "Paneer curry"},
+        {"Oats and banana", "Chickpea bowls", "Noodle soup"},
+        {"Idli and chutney", "Lemon rice", "Roast vegetables"},
+        {"Fruit and granola", "Sandwiches", "Pizza night"},
+        {"Pancakes", "Leftover bowls", "Tacos"},
+        {"Poha", "Family lunch", "Khichdi"}};
+    constexpr const char* kSlots[] = {"breakfast", "lunch", "dinner"};
+    constexpr const char* kLabels[] = {"Breakfast", "Lunch", "Dinner"};
+    for (int day = 0; day < 7; ++day)
+        for (int slot = 0; slot < 3; ++slot) {
+            const int i = day * 3 + slot;
+            std::snprintf(s.menu[i], sizeof(s.menu[i]), "%s: %s", kLabels[slot], kMeals[day][slot]);
+            std::snprintf(s.menu_id[i], sizeof(s.menu_id[i]), "%s/%s", kDays[day], kSlots[slot]);
+        }
     return s;
 }
 
@@ -174,8 +190,6 @@ HearthState MakeBuy() {
     HearthState s = MakeToday();
     s.screen = HearthScreen::kBuy;
     s.ack[0] = '\0';
-    std::snprintf(s.buy[0], sizeof(s.buy[0]), "oat milk");
-    std::snprintf(s.buy[1], sizeof(s.buy[1]), "eggs");
     return s;
 }
 
@@ -190,8 +204,6 @@ HearthState MakeNotes() {
     HearthState s = MakeToday();
     s.screen = HearthScreen::kNotes;
     s.ack[0] = '\0';
-    std::snprintf(s.notes[0], sizeof(s.notes[0]), "swim kit  Maya  Thursday");
-    std::snprintf(s.notes[1], sizeof(s.notes[1]), "leave bags by the door");
     return s;
 }
 
@@ -220,10 +232,13 @@ HearthState MakeFiling() {
 
 HearthState MakeRemoved() {
     HearthState s = MakeBuy();
-    std::snprintf(s.n_buy, sizeof(s.n_buy), "1");
-    std::snprintf(s.buy[0], sizeof(s.buy[0]), "eggs");
-    s.buy[1][0] = '\0';
-    std::snprintf(s.ack, sizeof(s.ack), "Removed oat milk.");
+    std::snprintf(s.n_buy, sizeof(s.n_buy), "7");
+    for (int i = 0; i < 9; ++i) {
+        std::memcpy(s.buy[i], s.buy[i + 1], sizeof(s.buy[i]));
+        s.buy_done[i] = s.buy_done[i + 1];
+    }
+    s.buy[9][0] = '\0';
+    std::snprintf(s.ack, sizeof(s.ack), "Removed Oat milk.");
     return s;
 }
 

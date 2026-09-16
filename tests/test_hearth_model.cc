@@ -35,7 +35,8 @@ int main() {
     assert(std::strcmp(out, "a\"b") == 0);
 
     const char* poster =
-        "{\"date\":\"Mon 14 Sep\",\"weather\":\"29C  fair\",\"wx\":\"sun\","
+        "{\"date\":\"Mon 14 Sep\",\"clock\":\"2026-09-14T09:42:00\","
+        "\"weather\":\"29C  fair\",\"wx\":\"sun\","
         "\"meal\":\"dal rice\",\"ack\":\"Added oat milk to Buy.\","
         "\"pending\":\"1\",\"queue\":\"2\",\"heard\":\"set lunch to dal\","
         "\"n_buy\":\"1\",\"n_notes\":\"1\","
@@ -46,6 +47,7 @@ int main() {
         "\"ahh\":\"7\",\"amm\":\"0\"}";
     HearthApplyPoster(&s, poster);
     assert(std::strcmp(s.date, "Mon 14 Sep") == 0);
+    assert(std::strcmp(s.clock, "2026-09-14T09:42:00") == 0);
     assert(std::strcmp(s.buy[0], "oat milk") == 0);
     assert(s.buy[1][0] == '\0');
     assert(std::strcmp(s.n_buy, "1") == 0);

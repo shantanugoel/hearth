@@ -11,8 +11,8 @@ the device.
 Screens from the current demo board, rendered by the host simulator using the
 firmware's canvas and screen code.
 
-- **Today:** prominent notes, the next two Buy items and upcoming meals, local
-  weather, and the next alarm.
+- **Today:** a prominent RTC-backed clock, local date and weather, important
+  notes, the next alarm, and compact Buy/Menu previews.
 - **Buy and Notes:** shopping, chores, packing, and reminders with owners,
   check marks, and voice or button deletion.
 - **Menu:** breakfast, lunch, and dinner under each weekday.

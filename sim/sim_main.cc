@@ -138,6 +138,7 @@ HearthState MakeToday() {
                   "add oat milk to the shopping list");
     std::snprintf(s.note, sizeof(s.note), "HEARTH v0.9.1-hearth");
     std::snprintf(s.date, sizeof(s.date), "Wed 16 Sep");
+    std::snprintf(s.clock, sizeof(s.clock), "2026-09-16T09:42:00");
     std::snprintf(s.weather, sizeof(s.weather), "31C  partly cloudy  21-31");
     std::snprintf(s.wx, sizeof(s.wx), "partly");
     std::snprintf(s.meal, sizeof(s.meal), "Noodle soup");

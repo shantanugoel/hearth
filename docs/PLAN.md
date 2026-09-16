@@ -50,7 +50,7 @@ The fridge is one mouth. Chat is another. Both write the same board.
 
 | Screen | Job | Layout |
 |---|---|---|
-| **Today** | Kitchen glance | Date and weather, then the selected notes list; two Buy and two upcoming Menu items share a split footer. |
+| **Today** | Kitchen glance and clock | Prominent RTC time with date and weather, then the selected notes list; two Buy and two upcoming Menu items share a split footer. |
 | **Buy** | Shopping | Selectable list with checkboxes. Named owners as a suffix. |
 | **Menu** | Week of meals | Full weekday headings with Breakfast, Lunch, Dinner entries in order. |
 | **Notes** | Household working memory | Selectable chores, bags, thoughts; checkboxes. |
@@ -79,7 +79,7 @@ E-ink is the feature. Design it like a kitchen print, not an app.
 - **Pure black and white** for the final poster system. This keeps the bitmap
   type sharp and lets listening/filing feedback use partial refresh. The
   calibrated 16-gray panel path remains in the driver for future artwork.
-- Type scale: huge date, one hero line, then a short list. Wide margins. Hairline rules. No icon chrome.
+- Type scale: huge time, compact date/weather, then a short list. Wide margins. Hairline rules. No icon chrome.
 - Partial refresh for ticking an item. Full refresh when the screen changes.
 - After a voice turn: one quiet confirmation line at the bottom
   (`Removed oat milk`), then settle back to the poster. Sound is reserved for

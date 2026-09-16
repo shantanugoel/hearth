@@ -9,7 +9,7 @@ text stays crisp and status changes can use fast partial refreshes.
 
 | Screen | Job |
 |---|---|
-| Today | Date, weather, alarm, prominent selectable notes, split footer with two Buy and two upcoming Menu items |
+| Today | RTC time, date, weather, alarm, prominent selectable notes, split footer with two Buy and two upcoming Menu items |
 | Buy | Shopping rows with checked and unchecked status |
 | Menu | Full weekday headings with Breakfast, Lunch, and Dinner meals below each day |
 | Notes | Chores, bags, thoughts with checked and unchecked status |

@@ -35,6 +35,7 @@ constexpr TickType_t kIdleSnap = pdMS_TO_TICKS(20000);
 constexpr TickType_t kPosterRefresh = pdMS_TO_TICKS(10000);
 constexpr TickType_t kFilePoll = pdMS_TO_TICKS(2000);
 constexpr TickType_t kAckDuration = pdMS_TO_TICKS(15000);
+constexpr TickType_t kClockPoll = pdMS_TO_TICKS(1000);
 constexpr int kMaxLocalRequests = 4;
 
 enum class NetKind : uint8_t { kUpload, kPoster, kApply };
@@ -68,6 +69,7 @@ TickType_t g_last_input = 0;
 TickType_t g_last_fetch = 0;
 TickType_t g_ack_shown = 0;
 TickType_t g_last_alarm_check = 0;
+TickType_t g_last_clock_check = 0;
 char g_rung_alarm[48] = {};
 char g_synced_alarm[48] = {};
 QueueHandle_t g_net_jobs = nullptr;
@@ -81,6 +83,7 @@ int g_local_clip_count = 0;
 char g_alarm_clear_body[160] = {};
 
 esp_err_t Paint(bool full);
+esp_err_t PaintClock();
 bool QueuePoster();
 bool QueueApply(const char* body);
 
@@ -117,6 +120,32 @@ void SyncRtcClock(const char* json) {
             ESP_LOGW(kTag, "RTC sync failed");
         }
     }
+}
+
+bool RefreshRtcClock() {
+    RtcPcf8563* rtc = g_board.rtc();
+    tm now = {};
+    if (rtc == nullptr || !rtc->GetTime(now)) return false;
+
+    int old_year = -1;
+    int old_month = -1;
+    int old_day = -1;
+    int old_hour = -1;
+    int old_minute = -1;
+    const bool had_clock =
+        std::sscanf(g_state.clock, "%d-%d-%dT%d:%d", &old_year, &old_month,
+                    &old_day, &old_hour, &old_minute) == 5;
+    const bool minute_changed = !had_clock || old_year != now.tm_year + 1900 ||
+        old_month != now.tm_mon + 1 || old_day != now.tm_mday ||
+        old_hour != now.tm_hour || old_minute != now.tm_min;
+
+    std::strftime(g_state.clock, sizeof(g_state.clock),
+                  "%Y-%m-%dT%H:%M:%S", &now);
+    char date[sizeof(g_state.date)] = {};
+    std::strftime(date, sizeof(date), "%a %d %b", &now);
+    const bool date_changed = std::strcmp(date, g_state.date) != 0;
+    if (date[0]) HearthCopy(g_state.date, sizeof(g_state.date), date);
+    return minute_changed || date_changed;
 }
 
 void SyncRtcAlarm() {
@@ -284,6 +313,20 @@ esp_err_t Paint(bool full) {
                                HearthCanvas::kHeight};
     return zectrix_epd_refresh_partial_1bpp(g_epd, &rect, g_canvas.data(),
                                             g_canvas.size());
+}
+
+esp_err_t PaintClock() {
+    HearthDraw(g_canvas, g_state);
+    if (!zectrix_epd_is_powered(g_epd)) return Paint(true);
+
+    constexpr int kTop = 40;
+    constexpr int kHeight = 56;
+    zectrix_epd_rect_t rect = {0, kTop, HearthCanvas::kWidth, kHeight};
+    const uint8_t* pixels = g_canvas.data() +
+        static_cast<size_t>(kTop) * HearthCanvas::kStride;
+    return zectrix_epd_refresh_partial_1bpp(
+        g_epd, &rect, pixels,
+        static_cast<size_t>(HearthCanvas::kStride) * kHeight);
 }
 
 void ShowVoice(HearthVoice voice, const char* status, bool full) {
@@ -620,6 +663,7 @@ extern "C" void app_main(void) {
 
     RefreshPower();
     RefreshRadio();
+    (void)RefreshRtcClock();
     std::snprintf(g_state.note, sizeof(g_state.note), "HEARTH %s",
                   kFirmwareVersion);
     std::snprintf(g_state.wifi_status, sizeof(g_state.wifi_status),
@@ -660,6 +704,16 @@ extern "C" void app_main(void) {
         if (now - g_last_alarm_check >= pdMS_TO_TICKS(500)) {
             g_last_alarm_check = now;
             CheckAlarm();
+        }
+        if (now - g_last_clock_check >= kClockPoll) {
+            g_last_clock_check = now;
+            if (RefreshRtcClock() && g_state.screen == HearthScreen::kToday) {
+                const esp_err_t clock_paint = PaintClock();
+                if (clock_paint != ESP_OK) {
+                    ESP_LOGW(kTag, "clock paint failed: %s",
+                             esp_err_to_name(clock_paint));
+                }
+            }
         }
         if (g_alarm_clear_body[0] && QueueApply(g_alarm_clear_body))
             g_alarm_clear_body[0] = '\0';

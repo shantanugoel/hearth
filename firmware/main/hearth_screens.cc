@@ -118,18 +118,36 @@ void DrawWrapped(HearthCanvas& canvas, int x, int y, int width, const char* text
     }
 }
 
-void WeatherTemp(const HearthState& state, char* temp, size_t cap) {
-    temp[0] = '\0';
-    const char* w = state.weather[0] ? state.weather : "";
-    if (w[0] < '0' || w[0] > '9') {
+void ClockTime(const HearthState& state, char* value, size_t cap) {
+    int hour = -1;
+    int minute = -1;
+    const char* time = std::strchr(state.clock, 'T');
+    time = time ? time + 1 : state.clock;
+    if (std::sscanf(time, "%d:%d", &hour, &minute) == 2 &&
+        hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+        std::snprintf(value, cap, "%02d:%02d", hour, minute);
         return;
     }
-    int n = 0;
-    while (w[n] && w[n] != ' ' && n + 1 < static_cast<int>(cap)) {
-        temp[n] = w[n];
-        n++;
+    std::snprintf(value, cap, "--:--");
+}
+
+void WeatherSummary(const HearthState& state, char* summary, size_t cap) {
+    summary[0] = '\0';
+    if (cap == 0 || state.weather[0] == '\0') return;
+
+    const char* separator = std::strstr(state.weather, "  ");
+    if (separator == nullptr) {
+        const int limit = static_cast<int>(cap - 1);
+        std::snprintf(summary, cap, "%.*s", limit, state.weather);
+        return;
     }
-    temp[n] = '\0';
+    const char* condition = separator + 2;
+    const char* end = std::strstr(condition, "  ");
+    const int temperature_len = static_cast<int>(separator - state.weather);
+    const int condition_len = end ? static_cast<int>(end - condition)
+                                  : static_cast<int>(std::strlen(condition));
+    std::snprintf(summary, cap, "%.*s %.*s", temperature_len, state.weather,
+                  condition_len, condition);
 }
 
 void DrawStatus(HearthCanvas& canvas, const HearthState& state) {
@@ -164,36 +182,37 @@ void DrawStatus(HearthCanvas& canvas, const HearthState& state) {
 
 void DrawToday(HearthCanvas& canvas, const HearthState& state) {
     const char* date = state.date[0] ? state.date : "Today";
-    canvas.Text(kLeft, 52, date, 2);
+    char clock[6];
+    ClockTime(state, clock, sizeof(clock));
+    canvas.Text(kLeft, 45, clock, 3);
 
-    char temp[12];
-    WeatherTemp(state, temp, sizeof(temp));
-    const uint16_t* wx = HearthWeatherIcon(state.wx);
-    const int icon_x = kRight - 16;
-    canvas.Icon16(icon_x, 57, wx);
-    if (temp[0] != '\0') {
-        const int tw = canvas.TextWidth(temp, 2);
-        canvas.Text(icon_x - 8 - tw, 52, temp, 2);
-    }
+    const int date_width = canvas.TextWidth(date, 1);
+    canvas.Text(kRight - date_width, 48, date, 1);
+    char weather[24];
+    WeatherSummary(state, weather, sizeof(weather));
+    const int weather_width = canvas.TextWidth(weather, 1);
+    const int icon_x = kRight - weather_width - 22;
+    canvas.Icon16(icon_x, 70, HearthWeatherIcon(state.wx));
+    canvas.Text(icon_x + 22, 70, weather, 1);
 
-    canvas.HLine(kLeft, 86, kBodyWidth);
+    canvas.HLine(kLeft, 94, kBodyWidth);
 
     if (state.alarm[0] != '\0') {
-        canvas.Icon16(kLeft, 96, kIconBell);
-        canvas.Text(kLeft + 22, 96, state.alarm, 1);
+        canvas.Icon16(kLeft, 101, kIconBell);
+        canvas.Text(kLeft + 22, 101, state.alarm, 1);
     }
 
-    const int heading_y = state.alarm[0] ? 121 : 98;
+    const int heading_y = state.alarm[0] ? 123 : 101;
     canvas.Icon16(kLeft, heading_y, kIconNotes);
     char heading[32];
     std::snprintf(heading, sizeof(heading), "NOTES  %s", state.n_notes);
     canvas.Text(kLeft + 24, heading_y, heading, 1);
-    const int first_y = heading_y + 23;
+    const int first_y = heading_y + 22;
     int shown = 0;
     const int visible_cap = state.alarm[0] ? 3 : 4;
     const int start = state.selected[0] >= visible_cap ? state.selected[0] - visible_cap + 1 : 0;
     for (int i = start; i < 12 && i < start + visible_cap && state.notes[i][0]; ++i) {
-        const int y = first_y + (i - start) * 24;
+        const int y = first_y + (i - start) * 22;
         const bool selected = state.selected[0] == i;
         if (selected) canvas.FillRect(kLeft - 3, y - 3, kBodyWidth + 6, 22, true);
         canvas.Rect(kLeft + 4, y + 1, 13, 13, !selected);

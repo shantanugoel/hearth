@@ -106,12 +106,14 @@ void SyncRtcClock(const char* json) {
     target.tm_hour = hour;
     target.tm_min = minute;
     target.tm_sec = second;
+    target.tm_wday = HearthWeekday(year, month, day);
     RtcPcf8563* rtc = g_board.rtc();
     if (!rtc) return;
     tm actual = {};
     const bool valid = rtc->GetTime(actual);
     if (!valid || actual.tm_year != target.tm_year ||
         actual.tm_mon != target.tm_mon || actual.tm_mday != target.tm_mday ||
+        actual.tm_wday != target.tm_wday ||
         actual.tm_hour != target.tm_hour || actual.tm_min != target.tm_min ||
         std::abs(actual.tm_sec - target.tm_sec) > 15) {
         if (rtc->SetTime(target)) {

@@ -129,6 +129,16 @@ inline bool HearthBusy(const HearthState& state) {
            state.voice == HearthVoice::kFiling;
 }
 
+// Gregorian weekday for the PCF8563 register and struct tm: 0=Sunday.
+inline int HearthWeekday(int year, int month, int day) {
+    static constexpr int kMonthOffsets[] =
+        {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+    if (month < 1 || month > 12 || day < 1 || day > 31) return -1;
+    if (month < 3) year--;
+    return (year + year / 4 - year / 100 + year / 400 +
+            kMonthOffsets[month - 1] + day) % 7;
+}
+
 inline void HearthApplyPoster(HearthState* state, const char* json) {
     if (state == nullptr || json == nullptr || json[0] == '\0') {
         return;

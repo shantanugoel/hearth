@@ -15,6 +15,10 @@ int main() {
     assert(HearthScreenName(HearthScreen::kPulse)[0] == 'P');
     assert(std::strcmp(HearthScreenName(HearthScreen::kMenu), "Menu") == 0);
     assert(std::strcmp(HearthScreenName(HearthScreen::kNotes), "Notes") == 0);
+    assert(HearthWeekday(2026, 9, 16) == 3);  // Wednesday
+    assert(HearthWeekday(2024, 2, 29) == 4);  // Thursday
+    assert(HearthWeekday(2000, 1, 1) == 6);   // Saturday
+    assert(HearthWeekday(2026, 13, 1) == -1);
 
     HearthState s;
     s.screen = HearthScreen::kToday;

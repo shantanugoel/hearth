@@ -1,0 +1,14 @@
+[Unit]
+Description=Hearth household hub
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/dev/zectrix-note4-home-hub
+ExecStart=/usr/bin/python3 -m hub --host 0.0.0.0 --port 8790
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

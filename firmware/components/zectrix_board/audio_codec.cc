@@ -38,6 +38,22 @@ void AudioCodec::Start() {
     ESP_LOGI(TAG, "Audio codec started");
 }
 
+void AudioCodec::Stop() {
+    if (tx_handle_ != nullptr) {
+        const esp_err_t err = i2s_channel_disable(tx_handle_);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "I2S TX disable failed: %s", esp_err_to_name(err));
+        }
+    }
+
+    if (rx_handle_ != nullptr) {
+        const esp_err_t err = i2s_channel_disable(rx_handle_);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "I2S RX disable failed: %s", esp_err_to_name(err));
+        }
+    }
+}
+
 void AudioCodec::SetOutputVolume(int volume) {
     output_volume_ = volume;
     ESP_LOGI(TAG, "Set output volume to %d", output_volume_);

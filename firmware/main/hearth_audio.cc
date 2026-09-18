@@ -70,6 +70,12 @@ esp_err_t HearthRecordWhile(ZectrixBoard* board, bool (*held)(),
     if (max_ms < 200) {
         max_ms = 200;
     }
+    // A long press that was really a tap is usually released before this task
+    // even starts. Skip the rail ramp and the codec bring-up in that case; the
+    // caller reads ESP_ERR_INVALID_SIZE as "that was a short press".
+    if (!held()) {
+        return ESP_ERR_INVALID_SIZE;
+    }
     const uint32_t max_samples = (kRate * max_ms) / 1000;
     const size_t cap = static_cast<size_t>(kHeader) + max_samples * 2;
     uint8_t* wav = static_cast<uint8_t*>(heap_caps_malloc(
@@ -88,7 +94,7 @@ esp_err_t HearthRecordWhile(ZectrixBoard* board, bool (*held)(),
     AudioCodec* codec = board->PrepareAudio();
     if (codec == nullptr || !codec->valid()) {
         heap_caps_free(wav);
-        board->SetAudioPower(false);
+        board->ReleaseAudio();
         ESP_LOGE(kTag, "codec missing");
         return ESP_FAIL;
     }
@@ -109,8 +115,10 @@ esp_err_t HearthRecordWhile(ZectrixBoard* board, bool (*held)(),
         esp_task_wdt_reset();
     }
     codec->EnableInput(false);
-    // Leave the analog rail up; power-cycling ES8311 without re-Start()
-    // leaves I2S enabled against a dead chip. Shutdown still drops it.
+    // Close the codec registers over I2C, stop the I2S clocks, and drop the
+    // analog rail. The next recording brings the rail up and re-opens the
+    // codec, which is what keeps the rail idle instead of powered all day.
+    board->ReleaseAudio();
 
     if (samples < kRate / 5) {  // < 200 ms
         heap_caps_free(wav);
@@ -140,7 +148,7 @@ esp_err_t HearthPlayAlarm(ZectrixBoard* board) {
     AudioCodec* codec = board->PrepareAudio();
     if (codec == nullptr || !codec->valid()) {
         ESP_LOGW(kTag, "alarm: codec missing");
-        board->SetAudioPower(false);
+        board->ReleaseAudio();
         return ESP_FAIL;
     }
     codec->EnableInput(false);
@@ -166,7 +174,7 @@ esp_err_t HearthPlayAlarm(ZectrixBoard* board) {
         }
     }
     codec->EnableOutput(false);
-    board->SetAudioPower(false);
+    board->ReleaseAudio();
     ESP_LOGI(kTag, "alarm chime");
     return ESP_OK;
 }

@@ -17,8 +17,11 @@ text stays crisp and status changes can use fast partial refreshes.
 
 - A labeled top rail uses house **Today**, `$` **Buy**, fork-and-knife **Menu**,
   paper **Notes**, and signal **Pulse**. The active poster is reversed in black.
-- **Hold OK:** listen until release, cap 12 s. A bottom status bar says
-  `listening`, then `sending`, then `filing`. The poster stays on screen.
+- **Hold OK (~0.45 s):** listen until release, cap 12 s. A bottom status bar says
+  `listening`, then `sending`, then `filing`. The poster stays on screen. The
+  hold is timed from the moment the button is first felt, and a hold that
+  releases before it becomes usable speech is treated as the short press it
+  looked like: the page turns instead of a “hold longer” complaint.
 - Recording and network transfer run on separate device tasks. Page buttons
   remain usable during `sending` and `filing`, and up to four new recordings
   can wait locally. The hub accepts each WAV immediately and processes up to
@@ -29,6 +32,9 @@ text stays crisp and status changes can use fast partial refreshes.
 - **Long UP (~0.9 s):** check or uncheck the selected note or Buy item. Today selects notes.
 - **Long DOWN (~0.9 s):** delete the selected note, Buy item, or Menu entry by its ID/key.
   ~20 s idle snaps to Today (the status bar stays if still filing).
+- Only the rows that differ from the glass are refreshed, and a poster that
+  differs only in its `clock` field is not painted at all. A minute tick is a
+  few rows; a page turn is the whole screen; an identical frame is nothing.
 - Every spoken command goes to the dedicated Hermes agent. The hub supplies a
   fresh board snapshot with stable IDs, while the Hearth MCP tools expose read,
   add, complete, toggle, delete, meals, and alarms. The hub acknowledges only
@@ -79,9 +85,11 @@ Every phrase uses a fresh one-shot with the configured Hermes command (for
 example, `hearth --yolo --skills hearth-board -z '…'`). The installer pins only this profile to
 `openai-codex / gpt-5.6-luna` with reasoning disabled; default and sibling
 Hermes profiles are untouched. `POST /v1/utterance` returns `request_id` and
-queue depth immediately. The device keeps the UI live and polls `/v1/poster`
-every 2 s while filing and every 10 s while idle for the transcript, queue
-depth, alarms, and ack.
+queue depth immediately. The device keeps the UI live and polls `/v1/poster` for
+the transcript, queue depth, alarms, and ack: every 2 s while something is
+filing, every 10 s while a button has recently been pressed, every 60 s when the
+board is idle, and every 5 min once an idle stretch has proved nothing is
+changing. A failed fetch retries in 20 s. See [POWER.md](POWER.md).
 
 ## Hub
 

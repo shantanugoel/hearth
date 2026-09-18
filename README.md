@@ -73,8 +73,10 @@ The hub and NOTE4 must share a network.
 
 Short-click the **front button** to cycle Today, Buy, Menu, Notes, and Pulse.
 Click **up/down** to move through items; hold **up** to check or uncheck the
-selected item, or hold **down** to delete it. Hold the **front button** while
-speaking, then release to send the recording.
+selected item, or hold **down** to delete it. Hold the **front button** (about
+half a second) while speaking, then release to send the recording.
+Idle standby, the wake-up budget, and the poster poll schedule live in
+[battery and power](docs/POWER.md).
 
 Wi-Fi and hub settings can also be changed over the 115200-baud USB console
 with `hearth-set` and `hearth-save`; see [device setup](docs/VOICE.md).

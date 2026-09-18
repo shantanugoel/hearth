@@ -13,16 +13,23 @@
 #include "freertos/task.h"
 #include "rtc_pcf8563.h"
 #include "zectrix_board_config.h"
+#include "zectrix_button_logic.h"
 #include "zectrix_nfc.h"
 
 namespace {
 
 constexpr char kTag[] = "zectrix_board";
 constexpr TickType_t kButtonPoll = pdMS_TO_TICKS(20);
-constexpr TickType_t kButtonDebounce = pdMS_TO_TICKS(40);
-constexpr TickType_t kOkLongPress = pdMS_TO_TICKS(220);
-constexpr TickType_t kNavLongPress = pdMS_TO_TICKS(900);
+constexpr uint32_t kButtonDebounceMs = 40;
+// A short front-button press turns the page; a hold speaks. The threshold is
+// measured from the press edge, so 450 ms is the hold a person actually feels.
+constexpr uint32_t kOkLongPressMs = 450;
+constexpr uint32_t kNavLongPressMs = 900;
 constexpr adc_channel_t kBatteryAdcChannel = ADC_CHANNEL_3;
+
+uint32_t NowMs() {
+    return static_cast<uint32_t>(esp_timer_get_time() / 1000);
+}
 
 struct ButtonDefinition {
     gpio_num_t gpio;
@@ -35,19 +42,12 @@ constexpr std::array<ButtonDefinition, 3> kButtons = {{
     {ZECTRIX_BUTTON_OK, ZectrixButton::kOk},
 }};
 
-TickType_t LongPressTicks(ZectrixButton button) {
-    if (button == ZectrixButton::kDown || button == ZectrixButton::kUp) {
-        return kNavLongPress;
-    }
-    if (button == ZectrixButton::kOk) {
-        return kOkLongPress;
-    }
-    return portMAX_DELAY;
-}
-
-bool ClickOnPress(ZectrixButton button) {
-    (void)button;
-    return false;  // Wait for release so a hold never moves the selection.
+zectrix::ButtonTiming ButtonTimingFor(ZectrixButton button) {
+    zectrix::ButtonTiming timing;
+    timing.debounce_ms = kButtonDebounceMs;
+    timing.long_press_ms =
+        (button == ZectrixButton::kOk) ? kOkLongPressMs : kNavLongPressMs;
+    return timing;
 }
 
 }  // namespace
@@ -161,7 +161,8 @@ void ZectrixBoard::InitBatteryAdc() {
     }
 }
 
-esp_err_t ZectrixBoard::Init() {
+esp_err_t ZectrixBoard::Init(const Config& config) {
+    nfc_enabled_ = config.enable_nfc;
     esp_err_t err = InitPowerAndGpio();
     if (err != ESP_OK) {
         return err;
@@ -195,12 +196,19 @@ esp_err_t ZectrixBoard::Init() {
         rtc_.reset();
     }
 
-    nfc_ = std::make_unique<ZectrixNfc>(
-        i2c_bus_, ZECTRIX_NFC_ADDR, ZECTRIX_NFC_POWER,
-        ZECTRIX_NFC_FD, ZECTRIX_NFC_FD_ACTIVE_LEVEL);
-    if (!nfc_->Init()) {
-        ESP_LOGW(kTag, "NFC is unavailable");
-        nfc_.reset();
+    if (nfc_enabled_) {
+        nfc_ = std::make_unique<ZectrixNfc>(
+            i2c_bus_, ZECTRIX_NFC_ADDR, ZECTRIX_NFC_POWER,
+            ZECTRIX_NFC_FD, ZECTRIX_NFC_FD_ACTIVE_LEVEL);
+        if (!nfc_->Init()) {
+            ESP_LOGW(kTag, "NFC is unavailable");
+            nfc_.reset();
+        }
+    } else {
+        // Nothing reads tags, so leave the NFC rail and its field-sensing task
+        // down. Hearth v1 has no use for NFC (PLAN.md), and an unpowered
+        // front end is the cheapest kind.
+        ReleaseAudio();
     }
 
     ESP_LOGI(kTag, "board initialized rtc=%d nfc=%d",
@@ -213,62 +221,29 @@ void ZectrixBoard::ButtonTaskEntry(void* arg) {
 }
 
 void ZectrixBoard::ButtonTask() {
-    std::array<ButtonState, kButtons.size()> states = {};
-    const TickType_t start = xTaskGetTickCount();
+    std::array<zectrix::ButtonTracker, kButtons.size()> trackers = {};
+    const uint32_t start = NowMs();
     for (size_t i = 0; i < kButtons.size(); ++i) {
-        const int level = gpio_get_level(kButtons[i].gpio);
-        states[i].stable_level = level;
-        states[i].sampled_level = level;
-        states[i].sampled_at = start;
-        states[i].armed = level != 0;
+        zectrix::ResetButtonTracker(
+            trackers[i], start, gpio_get_level(kButtons[i].gpio) == 0);
     }
 
     while (true) {
-        const TickType_t now = xTaskGetTickCount();
+        const uint32_t now = NowMs();
         for (size_t i = 0; i < kButtons.size(); ++i) {
-            ButtonState& state = states[i];
             const ButtonDefinition& definition = kButtons[i];
-            const int sampled = gpio_get_level(definition.gpio);
-            if (sampled != state.sampled_level) {
-                state.sampled_level = sampled;
-                state.sampled_at = now;
+            const zectrix::ButtonEvent event = zectrix::TrackButtonPress(
+                trackers[i], ButtonTimingFor(definition.button), now,
+                gpio_get_level(definition.gpio) == 0);
+            if (event == zectrix::ButtonEvent::kNone) {
+                continue;
             }
-
-            if (sampled != state.stable_level &&
-                now - state.sampled_at >= kButtonDebounce) {
-                state.stable_level = sampled;
-                if (sampled == 0) {
-                    if (state.armed) {
-                        state.pressed_at = now;
-                        state.long_sent = false;
-                        if (ClickOnPress(definition.button)) {
-                            const ZectrixButtonEvent event = {
-                                definition.button,
-                                ZectrixButtonAction::kClick};
-                            xQueueSend(button_queue_, &event, 0);
-                        }
-                    }
-                } else if (!state.armed) {
-                    state.armed = true;
-                } else if (!state.long_sent &&
-                           !ClickOnPress(definition.button)) {
-                    const ZectrixButtonEvent event = {
-                        definition.button, ZectrixButtonAction::kClick};
-                    xQueueSend(button_queue_, &event, 0);
-                }
-            }
-
-            if (state.armed && state.stable_level == 0 &&
-                !state.long_sent) {
-                const TickType_t threshold = LongPressTicks(definition.button);
-                if (threshold != portMAX_DELAY &&
-                    now - state.pressed_at >= threshold) {
-                    state.long_sent = true;
-                    const ZectrixButtonEvent event = {
-                        definition.button, ZectrixButtonAction::kLongPress};
-                    xQueueSend(button_queue_, &event, 0);
-                }
-            }
+            const ZectrixButtonEvent queued = {
+                definition.button,
+                event == zectrix::ButtonEvent::kLongPress
+                    ? ZectrixButtonAction::kLongPress
+                    : ZectrixButtonAction::kClick};
+            xQueueSend(button_queue_, &queued, 0);
         }
         vTaskDelay(kButtonPoll);
     }
@@ -301,11 +276,32 @@ AudioCodec* ZectrixBoard::PrepareAudio() {
             ZECTRIX_AUDIO_DIN, ZECTRIX_AUDIO_PA, ES8311_CODEC_DEFAULT_ADDR);
     }
     if (!audio_started_) {
+        // Called after the rail came back up: this re-writes the ES8311
+        // registers over I2C and re-enables both I2S channels.
         audio_->Start();
         audio_->SetOutputVolume(80);
         audio_started_ = true;
     }
     return audio_.get();
+}
+
+void ZectrixBoard::ReleaseAudio() {
+    if (audio_ != nullptr) {
+        // Closes the codec registers over I2C and drops the speaker PA while
+        // the rail is still alive.
+        audio_->EnableInput(false);
+        audio_->EnableOutput(false);
+    }
+    if (audio_started_) {
+        // Stop driving MCLK/BCLK/WS into a codec whose rail is about to go.
+        audio_->Stop();
+        audio_started_ = false;
+    }
+    SetAudioPower(false);
+    // Note on expectations: GPIO42 is a shared peripheral rail, and I2cDevice
+    // re-asserts it before every RTC or NFC transaction (BoardI2cForcePowerOn),
+    // so this is correct teardown rather than a standby saving. See
+    // docs/POWER.md before assuming this rail can stay down.
 }
 
 bool ZectrixBoard::ReadBattery(uint16_t* voltage_mv, uint8_t* percent) {
@@ -337,8 +333,22 @@ ZectrixPowerSnapshot ZectrixBoard::ReadPowerSnapshot() {
     ZectrixPowerSnapshot result;
     result.battery_valid = ReadBattery(&result.battery_mv,
                                        &result.battery_percent);
+    last_battery_mv_ = result.battery_mv;
+    last_battery_percent_ = result.battery_percent;
+    battery_sample_valid_ = result.battery_valid;
     charge_status_.Tick(esp_timer_get_time() / 1000, result.battery_mv,
                         result.battery_valid);
+    result.charge = charge_status_.Get();
+    return result;
+}
+
+ZectrixPowerSnapshot ZectrixBoard::TickPower() {
+    ZectrixPowerSnapshot result;
+    result.battery_valid = battery_sample_valid_;
+    result.battery_mv = last_battery_mv_;
+    result.battery_percent = last_battery_percent_;
+    charge_status_.Tick(esp_timer_get_time() / 1000, last_battery_mv_,
+                        battery_sample_valid_);
     result.charge = charge_status_.Get();
     return result;
 }

@@ -21,6 +21,8 @@ class ModelTests(unittest.TestCase):
                 "-B/usr/bin",
                 "-I",
                 str(ROOT / "firmware/main"),
+                "-I",
+                str(ROOT / "firmware/components/zectrix_board/include"),
                 str(ROOT / "tests/test_hearth_model.cc"),
                 "-o",
                 str(binary),

@@ -7,6 +7,7 @@
 #include "esp_console.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "hearth_stats.h"
 #include "hearth_util.h"
 #include "nvs.h"
 #include "sdkconfig.h"
@@ -90,6 +91,26 @@ int CmdShow(int, char**) {
     return 0;
 }
 
+int CmdStats(int, char**) {
+    const HearthStats& s = g_hearth_stats;
+    printf("up      %us (%u wakes, %u refreshes, %u paints skipped)\n",
+           static_cast<unsigned>(s.uptime_s), static_cast<unsigned>(s.wakes),
+           static_cast<unsigned>(s.refreshes),
+           static_cast<unsigned>(s.paints_skipped));
+    printf("poster  %u fetches, %u changed and repainted\n",
+           static_cast<unsigned>(s.poster_fetches),
+           static_cast<unsigned>(s.poster_repaints));
+    printf("poll    next fetch in %u ms\n", static_cast<unsigned>(s.poll_ms));
+    if (s.battery_valid) {
+        printf("battery %u mV %u%%%s\n", static_cast<unsigned>(s.battery_mv),
+               s.battery_percent, s.charging ? " charging" : "");
+    } else {
+        printf("battery (no ADC reading)\n");
+    }
+    printf("screen  %s\n", s.screen);
+    return 0;
+}
+
 int CmdSet(int argc, char** argv) {
     const int errors = arg_parse(argc, argv, (void**)&g_set_args);
     if (errors != 0) {
@@ -145,6 +166,8 @@ void HearthConfigRegisterConsole(HearthConfig* config) {
     const esp_console_cmd_t commands[] = {
         {"hearth-show", "Print Wi-Fi and hub config", nullptr, CmdShow,
          nullptr, nullptr, nullptr},
+        {"hearth-stats", "Print wake-ups, refreshes, and battery", nullptr,
+         CmdStats, nullptr, nullptr, nullptr},
         {"hearth-set", "Set ssid, pass, or hub", nullptr, CmdSet, &g_set_args,
          nullptr, nullptr},
         {"hearth-save", "Write config to NVS", nullptr, CmdSave, nullptr,
@@ -156,5 +179,5 @@ void HearthConfigRegisterConsole(HearthConfig* config) {
         ESP_ERROR_CHECK(esp_console_cmd_register(&command));
     }
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
-    ESP_LOGI(kTag, "console ready: hearth-show / hearth-set / hearth-save");
+    ESP_LOGI(kTag, "console ready: hearth-show / hearth-stats / hearth-set");
 }

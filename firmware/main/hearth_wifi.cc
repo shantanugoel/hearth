@@ -17,6 +17,10 @@ constexpr const char* kTag = "hearth_wifi";
 constexpr int kScanMax = 16;
 constexpr int kConnected = BIT0;
 constexpr int kFailed = BIT1;
+// Beacon intervals between wakeups while idle (units: AP beacon intervals,
+// ~100 ms each). Every Hearth request is device-initiated, so the extra
+// inbound latency is invisible; beacons are not what keeps the board current.
+constexpr uint8_t kListenInterval = 5;
 
 EventGroupHandle_t g_events = nullptr;
 esp_netif_t* g_sta = nullptr;
@@ -24,6 +28,8 @@ char g_ip[16] = {};
 char g_ssid[33] = {};
 volatile bool g_connected = false;
 volatile int8_t g_rssi = 0;
+bool g_snappy = false;
+bool g_ps_warned = false;
 
 void WifiEvent(void*, esp_event_base_t base, int32_t id, void* data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
@@ -100,7 +106,7 @@ esp_err_t HearthWifiStart(const HearthConfig& config) {
                sizeof(wifi.sta.password), config.password);
     wifi.sta.threshold.authmode =
         config.password[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
-    wifi.sta.listen_interval = 3;
+    wifi.sta.listen_interval = kListenInterval;
 
     err = esp_wifi_set_mode(WIFI_MODE_STA);
     if (err != ESP_OK) {
@@ -110,13 +116,20 @@ esp_err_t HearthWifiStart(const HearthConfig& config) {
     if (err != ESP_OK) {
         return err;
     }
-    err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    err = esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
     if (err != ESP_OK) {
         return err;
     }
     err = esp_wifi_start();
     if (err != ESP_OK) {
         return err;
+    }
+    // Association, the scan, and the first poster fetch are all latency
+    // sensitive; the board loop drops back to deep modem sleep when it settles.
+    g_snappy = true;
+    err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "stay-awake power save failed: %s", esp_err_to_name(err));
     }
 
     if (config.ssid[0] == '\0') {
@@ -135,6 +148,22 @@ esp_err_t HearthWifiStart(const HearthConfig& config) {
 }
 
 bool HearthWifiConnected() { return g_connected; }
+
+void HearthWifiSetSnappy(bool snappy) {
+    if (g_snappy == snappy || g_sta == nullptr) {
+        return;
+    }
+    const esp_err_t err = esp_wifi_set_ps(snappy ? WIFI_PS_MIN_MODEM
+                                                : WIFI_PS_MAX_MODEM);
+    if (err != ESP_OK) {
+        if (!g_ps_warned) {
+            ESP_LOGW(kTag, "power save switch failed: %s", esp_err_to_name(err));
+            g_ps_warned = true;
+        }
+        return;
+    }
+    g_snappy = snappy;
+}
 
 void HearthWifiFill(HearthState* state) {
     if (state == nullptr) {

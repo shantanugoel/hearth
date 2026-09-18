@@ -25,6 +25,9 @@ public:
     virtual void OutputData(std::vector<int16_t>& data);
     virtual bool InputData(std::vector<int16_t>& data);
     virtual void Start();
+    // Stop the I2S channels so the ESP stops clocking a codec that has been
+    // powered down. EnableInput/EnableOutput must already be false.
+    virtual void Stop();
 
     // Whether the underlying codec chip was brought up successfully. A codec
     // that failed to initialize still answers every getter below with the

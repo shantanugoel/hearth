@@ -67,4 +67,62 @@ inline bool HearthJsonString(const char* json, const char* key, char* out,
     return n > 0;
 }
 
+// Span of `key`'s string value, tolerant of the hub's "`: "` serialization (the
+// same spacing the parser above forgives). False when the key is absent.
+inline bool HearthJsonValueSpan(const char* json, const char* key,
+                                const char** from, const char** to) {
+    if (json == nullptr || key == nullptr || from == nullptr || to == nullptr) {
+        return false;
+    }
+    char needle[48];
+    std::snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char* cursor = std::strstr(json, needle);
+    if (cursor == nullptr) {
+        return false;
+    }
+    cursor += std::strlen(needle);
+    while (*cursor == ' ' || *cursor == '\t') {
+        cursor++;
+    }
+    if (*cursor != ':') {
+        return false;
+    }
+    cursor++;
+    while (*cursor == ' ' || *cursor == '\t') {
+        cursor++;
+    }
+    if (*cursor != '"') {
+        return false;
+    }
+    const char* end = std::strchr(cursor + 1, '"');
+    if (end == nullptr) {
+        return false;
+    }
+    *from = cursor;
+    *to = end + 1;
+    return true;
+}
+
+// True when two bodies differ nowhere but inside `key`'s value. The board uses
+// this to skip painting a poster whose clock is the only thing that moved.
+inline bool HearthSameExcept(const char* a, const char* b, const char* key) {
+    if (a == nullptr || b == nullptr) {
+        return a == b;
+    }
+    const char* a_from = nullptr;
+    const char* a_to = nullptr;
+    const char* b_from = nullptr;
+    const char* b_to = nullptr;
+    if (!HearthJsonValueSpan(a, key, &a_from, &a_to) ||
+        !HearthJsonValueSpan(b, key, &b_from, &b_to)) {
+        return std::strcmp(a, b) == 0;
+    }
+    const size_t prefix = static_cast<size_t>(a_from - a);
+    if (prefix != static_cast<size_t>(b_from - b) ||
+        std::strncmp(a, b, prefix) != 0) {
+        return false;
+    }
+    return std::strcmp(a_to, b_to) == 0;
+}
+
 #endif  // HEARTH_UTIL_H_
